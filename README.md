@@ -12,9 +12,12 @@
 ## 開発
 
 ```bash
-pnpm install --ignore-scripts
+mise install
+pnpm install
 pnpm dev
 ```
+
+Windowsでmise本体が未導入の場合は、先に `scoop install mise` または `winget install jdx.mise` を実行してください。
 
 通常のブラウザでは `http://localhost:3000` を開きます。
 
@@ -24,5 +27,6 @@ pnpm dev
 
 ```bash
 pnpm exec tsc --noEmit
+pnpm lint
 pnpm build
 ```
