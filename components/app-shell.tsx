@@ -11,6 +11,7 @@ const navigation = [
   { href: "/calendar", label: "Calendar", icon: "calendar" as const },
   { href: "/routines", label: "Routines", icon: "routines" as const },
   { href: "/stats", label: "Stats", icon: "stats" as const },
+  { href: "/settings", label: "Settings", icon: "settings" as const },
 ];
 
 function isActive(pathname: string, href: string) {

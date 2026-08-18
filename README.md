@@ -8,6 +8,7 @@
 - `/calendar` — Calendar：必須ルーティーンを基準にした月間履歴
 - `/routines` — Routines：作成・編集・無効化
 - `/stats` — Stats：必須 / 任意の期間別・ルーティーン別達成率
+- `/settings` — Settings：ユーザーデータのJSONエクスポート・インポート
 
 Todayの`?date=YYYY-MM-DD`は実在する日付だけを受け付けます。形式不正・存在しない日付は今日へ戻し、未来の日付は閲覧のみ、過去の日付は履歴確認用として扱います。ルーティーンの記録APIでは未来日や対象外の日への保存を拒否します。
 
@@ -52,6 +53,8 @@ APIやDBの一時障害が起きた場合、既に表示しているルーティ
 - `RELEASE_COMMIT_SHA` — 稼働commit SHA（Production / Previewでは必須）
 - `RELEASE_BRANCH` — 稼働ブランチ（Productionは `main` 必須）
 - `TRUST_PROXY_HEADERS` — 管理下のreverse proxyがclient IPを正規化した場合だけ `true`
+
+Settingsのデータ管理では、ログイン中ユーザーのRoutine / Revision / Logだけをschema version付きJSONとして書き出せます。読み込みは現在のユーザーの同じ3種類のデータを置き換える方式で、別アカウントへ読み込む場合も内部IDを再発行します。password hash、Session、他ユーザーのデータは対象外です。不正なファイルや未知のschema versionは反映前に拒否し、読み込みはtransactionで実行します。
 
 既存のブラウザ `localStorage` データは自動移行しません。本番用の永続化基盤へ切り替えるため、必要なデータはDB移行後に再登録してください。
 

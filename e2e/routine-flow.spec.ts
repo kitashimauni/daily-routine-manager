@@ -251,3 +251,29 @@ test("does not show onboarding when a routine exists outside today's schedule", 
   await expect(page.getByText("曜日外のルーティーン")).toHaveCount(0);
   await expect(page.getByText("この日の予定はありません。")).toHaveCount(2);
 });
+
+test("exports and imports user data from Settings", async ({ page }) => {
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-portability-${unique}@example.com`;
+  const password = "correct-horse-battery-staple";
+
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": `198.51.100.${Math.floor(Math.random() * 200) + 1}` });
+  await register(page, email, password);
+  await createRoutine(page, "持ち運びするRoutine");
+  await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "データ管理" })).toBeVisible();
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "JSONをダウンロード" }).click();
+  const download = await downloadPromise;
+  const downloadPath = await download.path();
+  expect(downloadPath).toBeTruthy();
+
+  await page.locator("#data-import-file").setInputFiles(downloadPath!);
+  await expect(page.getByText(/Routine 1件 \/ 履歴 1件 \/ 完了ログ 0件/)).toBeVisible();
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "この内容で置き換える" }).click();
+  await expect(page.getByRole("status")).toContainText("1件のRoutine");
+  await page.getByRole("link", { name: "Routines" }).click();
+  await expect(page.getByText("持ち運びするRoutine")).toBeVisible();
+});
