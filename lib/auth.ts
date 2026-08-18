@@ -4,8 +4,6 @@ import { cookies } from "next/headers";
 import { getDatabase } from "@/lib/db";
 import type { Database } from "@/lib/db";
 import { sessions, users } from "@/lib/db/schema";
-import { seedDefaultRoutinesInTransaction } from "@/lib/routine-service";
-import { getServerTodayDate } from "@/lib/server-date";
 import type { AuthUser } from "@/lib/types";
 
 const SESSION_COOKIE = "routine_session";
@@ -109,7 +107,6 @@ export async function registerUser(email: string, password: string, options: Aut
   try {
     const sessionToken = await db.transaction(async (tx) => {
       await tx.insert(users).values({ id: userId, email: normalizedEmail, passwordHash, createdAt: timestamp });
-      await seedDefaultRoutinesInTransaction(tx, userId, getServerTodayDate(), timestamp);
       return createSessionRecord(tx, userId);
     });
     await setSessionCookie(sessionToken, options.cookieStore);

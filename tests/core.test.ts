@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { assertAuthRateLimit } from "@/lib/auth-rate-limit";
 import { getCurrentUser, loginUser, logoutUser, registerUser, removeExpiredSessions } from "@/lib/auth";
-import { routines, sessions, users } from "@/lib/db/schema";
+import { routineLogs, routineRevisions, routines, sessions, users } from "@/lib/db/schema";
 import { isValidDateKey } from "@/lib/date";
 import { getDailyRoutinesForDate } from "@/lib/routine-view";
 import { createRoutineForUser, deactivateRoutineForUser, parseRoutineInput, reactivateRoutineForUser, setRoutineLog, updateRoutineForUser } from "@/lib/routine-service";
@@ -172,7 +172,7 @@ describe("routine logs and user isolation", () => {
 });
 
 describe("authentication, transactions, and rate limits", () => {
-  it("registers seeded data and a session, then supports login, session lookup, and logout", async () => {
+  it("registers an empty routine state and a session, then supports login, session lookup, and logout", async () => {
     const cookies = createCookieStore();
     const email = "member@example.com";
     const password = "correct-horse-battery-staple";
@@ -180,7 +180,9 @@ describe("authentication, transactions, and rate limits", () => {
     expect(user.email).toBe(email);
     expect(cookies.get("routine_session")).toBeDefined();
     expect((await testDb.select().from(users).where(eq(users.id, user.id)))).toHaveLength(1);
-    expect((await testDb.select().from(routines).where(eq(routines.userId, user.id)))).toHaveLength(4);
+    expect((await testDb.select().from(routines).where(eq(routines.userId, user.id)))).toHaveLength(0);
+    expect((await testDb.select().from(routineRevisions))).toHaveLength(0);
+    expect((await testDb.select().from(routineLogs))).toHaveLength(0);
     expect((await testDb.select().from(sessions).where(eq(sessions.userId, user.id)))).toHaveLength(1);
 
     expect(await getCurrentUser({ cookieStore: cookies })).toEqual(user);
@@ -193,17 +195,19 @@ describe("authentication, transactions, and rate limits", () => {
     expect(await getCurrentUser({ cookieStore: loginCookies })).toEqual(user);
   });
 
-  it("rolls back the whole registration transaction when seed creation fails", async () => {
-    await testSql`CREATE OR REPLACE FUNCTION test_fail_seed_routine() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test seed failure'; END; $$`;
-    await testSql`CREATE TRIGGER test_fail_seed BEFORE INSERT ON routines FOR EACH ROW EXECUTE FUNCTION test_fail_seed_routine()`;
+  it("rolls back the whole registration transaction when session creation fails", async () => {
+    await testSql`CREATE OR REPLACE FUNCTION test_fail_session() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test session failure'; END; $$`;
+    await testSql`CREATE TRIGGER test_fail_session BEFORE INSERT ON sessions FOR EACH ROW EXECUTE FUNCTION test_fail_session()`;
     try {
       await expect(registerUser("rollback@example.com", "correct-horse-battery-staple", { cookieStore: createCookieStore() })).rejects.toThrow("Failed query");
       expect(await testDb.select().from(users).where(eq(users.email, "rollback@example.com"))).toHaveLength(0);
       expect(await testDb.select().from(routines)).toHaveLength(0);
+      expect(await testDb.select().from(routineRevisions)).toHaveLength(0);
+      expect(await testDb.select().from(routineLogs)).toHaveLength(0);
       expect(await testDb.select().from(sessions)).toHaveLength(0);
     } finally {
-      await testSql`DROP TRIGGER IF EXISTS test_fail_seed ON routines`;
-      await testSql`DROP FUNCTION IF EXISTS test_fail_seed_routine()`;
+      await testSql`DROP TRIGGER IF EXISTS test_fail_session ON sessions`;
+      await testSql`DROP FUNCTION IF EXISTS test_fail_session()`;
     }
   });
 

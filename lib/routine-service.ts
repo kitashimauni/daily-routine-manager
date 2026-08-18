@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDatabase } from "@/lib/db";
-import type { Database } from "@/lib/db";
 import { routineLogs, routineRevisions, routines } from "@/lib/db/schema";
 import { getDayOfWeek, isValidDateKey } from "@/lib/date";
 import { addDateDays, getServerTodayDate } from "@/lib/server-date";
@@ -13,8 +12,6 @@ export class RoutineServiceError extends Error {
     this.name = "RoutineServiceError";
   }
 }
-
-type DatabaseWriter = Pick<Database, "insert">;
 
 export function parseRoutineInput(value: unknown): RoutineInput {
   if (!value || typeof value !== "object") throw new RoutineServiceError("ルーティーンの入力が不正です。", 400);
@@ -159,27 +156,6 @@ export async function createRoutineForUser(userId: string, input: RoutineInput) 
     await tx.insert(routineRevisions).values({ id: revision.id, routineId, ...input, createdAt: timestamp });
   });
   return (await findRoutine(userId, routineId)).routine;
-}
-
-const defaultRoutines = [
-    ["体を動かす", "required", [1, 2, 3, 4, 5]],
-    ["本を読む", "required", [0, 1, 2, 3, 4, 5, 6]],
-    ["英語を勉強する", "optional", [1, 2, 3, 4, 5]],
-    ["日記を書く", "optional", [0, 2, 4, 6]],
-  ] as const;
-
-export async function seedDefaultRoutinesInTransaction(
-  tx: DatabaseWriter,
-  userId: string,
-  today = getServerTodayDate(),
-  timestamp = new Date().toISOString(),
-) {
-  for (const [content, priority, daysOfWeek] of defaultRoutines) {
-    const routineId = randomUUID();
-    const mutableDaysOfWeek = [...daysOfWeek];
-    await tx.insert(routines).values({ id: routineId, userId, content, priority, daysOfWeek: mutableDaysOfWeek, startDate: today, isActive: true, createdAt: timestamp, updatedAt: timestamp });
-    await tx.insert(routineRevisions).values({ id: randomUUID(), routineId, content, priority, daysOfWeek: mutableDaysOfWeek, startDate: today, isActive: true, createdAt: timestamp });
-  }
 }
 
 export async function updateRoutineForUser(userId: string, routineId: string, input: RoutineInput) {

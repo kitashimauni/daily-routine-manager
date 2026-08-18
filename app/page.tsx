@@ -10,7 +10,6 @@ import type { RoutineWithStatus } from "@/lib/types";
 function RoutineGroup({
   title,
   items,
-  date,
   optional = false,
   readOnly,
   pendingRoutineId,
@@ -18,7 +17,6 @@ function RoutineGroup({
 }: {
   title: string;
   items: RoutineWithStatus[];
-  date: string;
   optional?: boolean;
   readOnly: boolean;
   pendingRoutineId: string | null;
@@ -53,15 +51,24 @@ function RoutineGroup({
       {items.length > 0 && readOnly && (
         <p className="routine-empty" style={{ paddingBottom: 10 }}>未来の日付は閲覧のみです。</p>
       )}
-      {items.length === 0 && date === getTodayDate() && (
-        <Link href="/routines" className="mini-add"><Icon name="plus" size={15} /> ルーティーンを追加</Link>
-      )}
+    </section>
+  );
+}
+
+function EmptyRoutineState() {
+  return (
+    <section className="card empty-state-card">
+      <div className="empty-state-mark" aria-hidden="true"><Icon name="plus" size={20} /></div>
+      <p className="eyebrow">Start small</p>
+      <h2>まだルーティーンがありません</h2>
+      <p>毎日続けたいことを登録してみましょう。</p>
+      <Link href="/routines" className="btn btn-primary"><Icon name="plus" size={16} /> 最初のルーティーンを追加</Link>
     </section>
   );
 }
 
 export default function TodayPage() {
-  const { hydrated, getDailyRoutines, toggleRoutine } = useRoutines();
+  const { hydrated, routines, getDailyRoutines, toggleRoutine } = useRoutines();
   const [date, setDate] = useState("");
   const [pendingRoutineId, setPendingRoutineId] = useState<string | null>(null);
 
@@ -138,10 +145,10 @@ export default function TodayPage() {
         </div>
       </section>
 
-      <div className="routine-columns">
-        <RoutineGroup title="必ずやる" items={daily.required} date={date} readOnly={readOnly} pendingRoutineId={pendingRoutineId} onToggle={(id) => { void handleToggle(id); }} />
-        <RoutineGroup title="できればやる" items={daily.optional} date={date} optional readOnly={readOnly} pendingRoutineId={pendingRoutineId} onToggle={(id) => { void handleToggle(id); }} />
-      </div>
+      {today && routines.length === 0 ? <EmptyRoutineState /> : <div className="routine-columns">
+        <RoutineGroup title="必ずやる" items={daily.required} readOnly={readOnly} pendingRoutineId={pendingRoutineId} onToggle={(id) => { void handleToggle(id); }} />
+        <RoutineGroup title="できればやる" items={daily.optional} optional readOnly={readOnly} pendingRoutineId={pendingRoutineId} onToggle={(id) => { void handleToggle(id); }} />
+      </div>}
     </div>
   );
 }

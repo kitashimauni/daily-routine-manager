@@ -103,6 +103,7 @@ export default function RoutinesPage() {
   const [editing, setEditing] = useState<Routine | null>(null);
 
   if (!hydrated) return <div className="page-wrap"><div className="skeleton" /></div>;
+  const isEmpty = routines.length === 0;
   const activeRequired = routines.filter((routine) => routine.isActive && routine.priority === "required");
   const activeOptional = routines.filter((routine) => routine.isActive && routine.priority === "optional");
   const inactive = routines.filter((routine) => !routine.isActive);
@@ -118,8 +119,9 @@ export default function RoutinesPage() {
       </div>
       <div className="management-grid">
         <section className="card form-card">
-          <p className="eyebrow">New routine</p>
-          <h2>新しいルーティーン</h2>
+          <p className="eyebrow">{isEmpty ? "Getting started" : "New routine"}</p>
+          <h2>{isEmpty ? "最初のルーティーンを追加" : "新しいルーティーン"}</h2>
+          {isEmpty && <p className="form-intro">毎日続けたいことを登録してみましょう。</p>}
           <RoutineForm onSubmit={async (input) => { await addRoutine({ ...input, isActive: true }); }} />
         </section>
         <div className="routine-list">
