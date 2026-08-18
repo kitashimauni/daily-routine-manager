@@ -1,6 +1,6 @@
 "use client";
 
-type IconName = "today" | "calendar" | "routines" | "stats" | "plus" | "chevron-left" | "chevron-right" | "check" | "edit" | "pause" | "play" | "arrow-up-right" | "lock" | "x";
+type IconName = "today" | "calendar" | "routines" | "stats" | "settings" | "plus" | "chevron-left" | "chevron-right" | "check" | "edit" | "pause" | "play" | "arrow-up-right" | "lock" | "x";
 
 export function Icon({ name, size = 18, strokeWidth = 1.8 }: { name: IconName; size?: number; strokeWidth?: number }) {
   const common = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
@@ -9,6 +9,7 @@ export function Icon({ name, size = 18, strokeWidth = 1.8 }: { name: IconName; s
     calendar: <><rect x="3.5" y="5" width="17" height="16" rx="2" /><path d="M7.5 3v4M16.5 3v4M3.5 9.5h17" /><path d="M8 13h.01M12 13h.01M16 13h.01M8 17h.01M12 17h.01" /></>,
     routines: <><path d="M6 4.5h14M6 9.5h14M6 14.5h14M6 19.5h14" /><path d="m2.5 4.5.8.8 1.5-1.6M2.5 9.5l.8.8 1.5-1.6M2.5 14.5l.8.8 1.5-1.6M2.5 19.5l.8.8 1.5-1.6" /></>,
     stats: <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></>,
+    settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.4 1.4-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-2v-.2a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L9 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H7v-2h.8a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L9 9l1.4-1.4.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6V6h2v.4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L20 9l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v2h-.4a1.7 1.7 0 0 0-1.6 1Z" /></>,
     plus: <><path d="M12 5v14M5 12h14" /></>,
     "chevron-left": <path d="m14.5 5-7 7 7 7" />,
     "chevron-right": <path d="m9.5 5 7 7-7 7" />,

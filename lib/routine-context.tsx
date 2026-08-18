@@ -30,6 +30,7 @@ interface RoutineContextValue {
   register: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   retry: () => Promise<void>;
+  authenticatedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 }
 
 const RoutineContext = createContext<RoutineContextValue | null>(null);
@@ -81,12 +82,27 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
     setErrorSource("session");
   }, [resetData]);
 
+  const authenticatedFetch = useCallback(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const headers = new Headers(init?.headers);
+    if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+    const response = await fetch(input, { ...init, credentials: "same-origin", headers });
+    if (response.status === 401) invalidateSession();
+    return response;
+  }, [invalidateSession]);
+
+  const authenticatedRequestJson = useCallback(async <T,>(input: RequestInfo | URL, init?: RequestInit): Promise<T> => {
+    const response = await authenticatedFetch(input, init);
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new ApiRequestError(typeof body.error === "string" ? body.error : "サーバーでエラーが発生しました。", response.status);
+    return body as T;
+  }, [authenticatedFetch]);
+
   const loadRoutineData = useCallback(async () => {
-    const data = await requestJson<RoutineDataResponse>("/api/routines");
+    const data = await authenticatedRequestJson<RoutineDataResponse>("/api/routines");
     setRoutines(data.routines);
     setLogs(data.logs);
     setHydrated(true);
-  }, []);
+  }, [authenticatedRequestJson]);
 
   const refreshSession = useCallback(async (preserveUi = false) => {
     if (!preserveUi) setAuthHydrated(false);
@@ -154,7 +170,7 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     setErrorSource(null);
     try {
-      await requestJson<{ ok: true }>("/api/auth/logout", { method: "POST" });
+      await authenticatedRequestJson<{ ok: true }>("/api/auth/logout", { method: "POST" });
       setUser(null);
       resetData();
     } catch (requestError) {
@@ -164,7 +180,7 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
         setErrorSource("data");
       }
     }
-  }, [invalidateSession, resetData]);
+  }, [authenticatedRequestJson, invalidateSession, resetData]);
 
   const getDailyRoutines = useCallback((date: string): DailyRoutines => getDailyRoutinesForDate(routines, logs, date), [logs, routines]);
 
@@ -175,7 +191,7 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     setErrorSource(null);
     try {
-      const response = await requestJson<{ log: RoutineLog | null }>(`/api/routines/${encodeURIComponent(routineId)}/log`, { method: "PUT", body: JSON.stringify({ date, completed }) });
+      const response = await authenticatedRequestJson<{ log: RoutineLog | null }>(`/api/routines/${encodeURIComponent(routineId)}/log`, { method: "PUT", body: JSON.stringify({ date, completed }) });
       setLogs((current) => {
         const next = { ...current };
         const key = `${routineId}__${date}`;
@@ -190,13 +206,13 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
         setErrorSource("data");
       }
     }
-  }, [invalidateSession, logs]);
+  }, [authenticatedRequestJson, invalidateSession, logs]);
 
   const addRoutine = useCallback(async (input: RoutineInput) => {
     setError(null);
     setErrorSource(null);
     try {
-      const response = await requestJson<{ routine: Routine }>("/api/routines", { method: "POST", body: JSON.stringify(input) });
+      const response = await authenticatedRequestJson<{ routine: Routine }>("/api/routines", { method: "POST", body: JSON.stringify(input) });
       setRoutines((current) => [...current, response.routine]);
     } catch (requestError) {
       if (isUnauthorizedError(requestError)) invalidateSession();
@@ -206,13 +222,13 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
       }
       throw requestError;
     }
-  }, [invalidateSession]);
+  }, [authenticatedRequestJson, invalidateSession]);
 
   const updateRoutine = useCallback(async (routineId: string, input: RoutineInput) => {
     setError(null);
     setErrorSource(null);
     try {
-      const response = await requestJson<{ routine: Routine }>(`/api/routines/${encodeURIComponent(routineId)}`, { method: "PATCH", body: JSON.stringify(input) });
+      const response = await authenticatedRequestJson<{ routine: Routine }>(`/api/routines/${encodeURIComponent(routineId)}`, { method: "PATCH", body: JSON.stringify(input) });
       setRoutines((current) => current.map((routine) => routine.id === routineId ? response.routine : routine));
     } catch (requestError) {
       if (isUnauthorizedError(requestError)) invalidateSession();
@@ -222,13 +238,13 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
       }
       throw requestError;
     }
-  }, [invalidateSession]);
+  }, [authenticatedRequestJson, invalidateSession]);
 
   const changeRoutineState = useCallback(async (routineId: string, action: "deactivate" | "reactivate") => {
     setError(null);
     setErrorSource(null);
     try {
-      const response = await requestJson<{ routine: Routine }>(`/api/routines/${encodeURIComponent(routineId)}`, { method: "POST", body: JSON.stringify({ action }) });
+      const response = await authenticatedRequestJson<{ routine: Routine }>(`/api/routines/${encodeURIComponent(routineId)}`, { method: "POST", body: JSON.stringify({ action }) });
       setRoutines((current) => current.map((routine) => routine.id === routineId ? response.routine : routine));
     } catch (requestError) {
       if (isUnauthorizedError(requestError)) invalidateSession();
@@ -237,15 +253,15 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
         setErrorSource("data");
       }
     }
-  }, [invalidateSession]);
+  }, [authenticatedRequestJson, invalidateSession]);
 
   const deactivateRoutine = useCallback((routineId: string) => changeRoutineState(routineId, "deactivate"), [changeRoutineState]);
   const reactivateRoutine = useCallback((routineId: string) => changeRoutineState(routineId, "reactivate"), [changeRoutineState]);
   const retry = useCallback(() => refreshSession(true), [refreshSession]);
 
   const value = useMemo(
-    () => ({ user, authHydrated, error, errorSource, routines, logs, hydrated, getDailyRoutines, isCompleted, toggleRoutine, addRoutine, updateRoutine, deactivateRoutine, reactivateRoutine, login, register, logout, retry }),
-    [addRoutine, authHydrated, deactivateRoutine, error, errorSource, getDailyRoutines, hydrated, isCompleted, login, logs, logout, reactivateRoutine, register, retry, routines, toggleRoutine, updateRoutine, user],
+    () => ({ user, authHydrated, error, errorSource, routines, logs, hydrated, getDailyRoutines, isCompleted, toggleRoutine, addRoutine, updateRoutine, deactivateRoutine, reactivateRoutine, login, register, logout, retry, authenticatedFetch }),
+    [addRoutine, authenticatedFetch, authHydrated, deactivateRoutine, error, errorSource, getDailyRoutines, hydrated, isCompleted, login, logs, logout, reactivateRoutine, register, retry, routines, toggleRoutine, updateRoutine, user],
   );
 
   return <RoutineContext.Provider value={value}>{children}</RoutineContext.Provider>;

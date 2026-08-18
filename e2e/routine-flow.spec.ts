@@ -1,10 +1,22 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const weekdays = ["日", "月", "火", "水", "木", "金", "土"] as const;
+const E2E_TIME_ZONE = "Asia/Tokyo";
 
 function dateKey(date: Date) {
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  const parts = new Intl.DateTimeFormat("en-US", { day: "2-digit", month: "2-digit", timeZone: E2E_TIME_ZONE, year: "numeric" }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function addDays(date: string, amount: number) {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + amount);
+  return dateKey(value);
+}
+
+function dayOfWeek(date: string) {
+  return new Date(`${date}T00:00:00Z`).getUTCDay();
 }
 
 async function register(page: Page, email: string, password: string) {
@@ -37,14 +49,27 @@ async function createRoutineOnDay(page: Page, content: string, dayIndex: number)
   await expect(page.getByText(content)).toBeVisible();
 }
 
+function testClientIp(testId: string, retry: number) {
+  let hash = 2166136261;
+  for (const character of testId) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  const high = (hash >>> 16).toString(16);
+  const low = (hash & 0xffff).toString(16);
+  return `2001:db8:${high}:${low}::${retry + 1}`;
+}
+
+test.beforeEach(async ({ page }, testInfo) => {
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": testClientIp(testInfo.testId, testInfo.retry) });
+});
+
 test("registers, records, edits, disables, and restores an isolated routine flow", async ({ page }) => {
   const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const firstEmail = `e2e-${unique}@example.com`;
   const secondEmail = `e2e-other-${unique}@example.com`;
   const password = "correct-horse-battery-staple";
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayDate = dateKey(yesterday);
+  const yesterdayDate = addDays(dateKey(new Date()), -1);
 
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "ログイン" })).toBeVisible();
@@ -68,8 +93,10 @@ test("registers, records, edits, disables, and restores an isolated routine flow
   await page.getByRole("link", { name: "Routines" }).click();
   await page.getByLabel("内容").fill("E2Eで検証する");
   await page.getByLabel("開始日").fill(yesterdayDate);
-  await page.getByRole("button", { name: "日", exact: true }).click();
-  await page.getByRole("button", { name: "土", exact: true }).click();
+  for (const day of weekdays) {
+    const button = page.getByRole("button", { name: day, exact: true });
+    if (!(await button.evaluate((element) => element.classList.contains("selected")))) await button.click();
+  }
   await page.getByRole("button", { name: "追加する" }).click();
   await expect(page.getByText("E2Eで検証する")).toBeVisible();
 
@@ -157,6 +184,52 @@ test("clears stale routine data after an authenticated API returns 401", async (
   await expect(page.locator(".auth-error")).toContainText("セッションの有効期限が切れました");
 });
 
+test("clears stale routine data when Settings export returns 401", async ({ page }) => {
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-settings-export-session-${unique}@example.com`;
+  const password = "correct-horse-battery-staple";
+
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": `198.51.100.${Math.floor(Math.random() * 200) + 1}` });
+  await register(page, email, password);
+  await createRoutine(page, "Exportの401から回復する");
+  await page.getByRole("link", { name: "Settings" }).click();
+  await page.route("**/api/data/export", async (route) => {
+    await route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "ログインが必要です。" }) });
+  });
+  await page.getByRole("button", { name: "JSONをダウンロード" }).click();
+  await expect(page.getByRole("heading", { name: "ログイン" })).toBeVisible();
+  await expect(page.getByText("Exportの401から回復する")).toHaveCount(0);
+  await expect(page.locator(".auth-error")).toContainText("セッションの有効期限が切れました");
+});
+
+test("clears stale routine data when Settings import returns 401", async ({ page }) => {
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-settings-import-session-${unique}@example.com`;
+  const password = "correct-horse-battery-staple";
+
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": `198.51.100.${Math.floor(Math.random() * 200) + 1}` });
+  await register(page, email, password);
+  await createRoutine(page, "Importの401から回復する");
+  await page.getByRole("link", { name: "Settings" }).click();
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "JSONをダウンロード" }).click();
+  const download = await downloadPromise;
+  const downloadPath = await download.path();
+  expect(downloadPath).toBeTruthy();
+  await page.locator("#data-import-file").setInputFiles(downloadPath!);
+  await expect(page.getByText(/Routine 1件 \/ 履歴 1件 \/ 完了ログ 0件/)).toBeVisible();
+
+  await page.route("**/api/data/import", async (route) => {
+    await route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "ログインが必要です。" }) });
+  });
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "この内容で置き換える" }).click();
+  await expect(page.getByRole("heading", { name: "ログイン" })).toBeVisible();
+  await expect(page.getByText("Importの401から回復する")).toHaveCount(0);
+  await expect(page.locator(".auth-error")).toContainText("セッションの有効期限が切れました");
+});
+
 test("keeps the edited form mounted while retrying a failed save", async ({ page }) => {
   const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const email = `e2e-retry-${unique}@example.com`;
@@ -238,7 +311,7 @@ test("does not show onboarding when a routine exists outside today's schedule", 
   const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const email = `e2e-empty-day-${unique}@example.com`;
   const password = "correct-horse-battery-staple";
-  const nextDay = (new Date().getDay() + 1) % 7;
+  const nextDay = (dayOfWeek(dateKey(new Date())) + 1) % 7;
 
   await page.setExtraHTTPHeaders({ "x-forwarded-for": `198.51.100.${Math.floor(Math.random() * 200) + 1}` });
   await register(page, email, password);
@@ -250,4 +323,30 @@ test("does not show onboarding when a routine exists outside today's schedule", 
   await expect(page.getByRole("heading", { name: "できればやる", exact: true })).toBeVisible();
   await expect(page.getByText("曜日外のルーティーン")).toHaveCount(0);
   await expect(page.getByText("この日の予定はありません。")).toHaveCount(2);
+});
+
+test("exports and imports user data from Settings", async ({ page }) => {
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-portability-${unique}@example.com`;
+  const password = "correct-horse-battery-staple";
+
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": `198.51.100.${Math.floor(Math.random() * 200) + 1}` });
+  await register(page, email, password);
+  await createRoutine(page, "持ち運びするRoutine");
+  await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "データ管理" })).toBeVisible();
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "JSONをダウンロード" }).click();
+  const download = await downloadPromise;
+  const downloadPath = await download.path();
+  expect(downloadPath).toBeTruthy();
+
+  await page.locator("#data-import-file").setInputFiles(downloadPath!);
+  await expect(page.getByText(/Routine 1件 \/ 履歴 1件 \/ 完了ログ 0件/)).toBeVisible();
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "この内容で置き換える" }).click();
+  await expect(page.getByRole("status")).toContainText("1件のRoutine");
+  await page.getByRole("link", { name: "Routines" }).click();
+  await expect(page.getByText("持ち運びするRoutine")).toBeVisible();
 });
