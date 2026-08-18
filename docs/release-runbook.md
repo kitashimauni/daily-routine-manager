@@ -82,7 +82,7 @@ git fetch origin main
 git checkout main
 git pull --ff-only origin main
 test -z "$(git status --porcelain)"
-mise exec -- pnpm release:production -- --env-file .env.production
+mise exec -- pnpm release:production -- --compose-env-file .env.production
 ```
 
 `release:production`がcleanな`main` worktreeを検証し、`git rev-parse HEAD`でrelease SHAを導出してから、同じworktreeをComposeのbuild contextに指定する。Composeのapp imageは`daily-routine-manager:<commit-sha>`、migrate imageは`daily-routine-manager-migrate:<commit-sha>`として作成される。`config`の出力で`ports`がapp / postgresに存在しないこと、`DATABASE_URL`がProduction接続先であることを確認する。
@@ -160,7 +160,7 @@ docker run --rm --network routine-backend \
 ```bash
 git fetch origin main
 test -z "$(git status --porcelain)"
-mise exec -- pnpm release:production -- --rollback <known-main-commit-or-tag> --env-file .env.production
+mise exec -- pnpm release:production -- --rollback <known-main-commit-or-tag> --compose-env-file .env.production
 ```
 
 `RELEASE_COMMIT_SHA`だけを過去値へ変更して現在のsourceをbuildする操作は禁止する。rollback imageは`daily-routine-manager:<target-commit-sha>`として残るため、healthの`release.commitSha`、Composeのimage tag、対象source commitを突合する。

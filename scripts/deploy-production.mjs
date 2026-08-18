@@ -4,8 +4,8 @@ import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const usage = `Usage:
-  pnpm release:production [--env-file .env.production]
-  pnpm release:production -- --rollback <commit-or-tag> [--env-file .env.production]
+  pnpm release:production [--compose-env-file .env.production]
+  pnpm release:production -- --rollback <commit-or-tag> [--compose-env-file .env.production]
 
 The release commit is always derived from the Git source used as the Docker build context.
 The worktree must be clean. Production deploys require the main branch; rollback creates a
@@ -48,9 +48,9 @@ function parseArgs() {
       console.log(usage);
       process.exit(0);
     }
-    if (arg === "--env-file") {
+    if (arg === "--compose-env-file") {
       envFile = args[index + 1];
-      if (!envFile) fail("--env-file requires a path.");
+      if (!envFile) fail("--compose-env-file requires a path.");
       index += 1;
       continue;
     }
