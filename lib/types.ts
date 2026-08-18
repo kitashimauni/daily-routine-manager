@@ -1,5 +1,19 @@
 export type Priority = "required" | "optional";
 
+export interface AuthUser {
+  id: string;
+  email: string;
+}
+
+export interface RoutineInput {
+  content: string;
+  priority: Priority;
+  daysOfWeek: number[];
+  startDate: string;
+  endDate?: string;
+  isActive: boolean;
+}
+
 export interface RoutineRevision {
   id: string;
   routineId: string;

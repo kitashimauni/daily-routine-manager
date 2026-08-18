@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "@/components/icon";
+import { AuthPanel } from "@/components/auth-panel";
+import { useRoutines } from "@/lib/routine-context";
 
 const navigation = [
   { href: "/", label: "Today", icon: "today" as const },
@@ -17,6 +19,10 @@ function isActive(pathname: string, href: string) {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { authHydrated, error, logout, user } = useRoutines();
+  if (!authHydrated) return <div className="auth-shell"><div className="auth-card card"><div className="skeleton" /></div></div>;
+  if (!user) return <AuthPanel />;
+
   return (
     <div className="app-frame">
       <aside className="sidebar">
@@ -35,6 +41,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Link>
           ))}
         </nav>
+        <div className="account-panel">
+          <span className="account-email">{user.email}</span>
+          <button className="account-logout" type="button" onClick={() => void logout()}>ログアウト</button>
+        </div>
         <p className="side-bottom">small steps,<br />steady days.</p>
       </aside>
       <div className="main-area">
@@ -45,7 +55,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
           <span className="brand-subtitle">DAILY PRACTICE</span>
         </header>
-        <main>{children}</main>
+        <main>{error && <div className="app-error" role="status">{error}</div>}{children}</main>
         <nav className="mobile-nav" aria-label="メインナビゲーション">
           {navigation.map((item) => (
             <Link key={item.href} href={item.href} className={`mobile-nav-link ${isActive(pathname, item.href) ? "active" : ""}`}>

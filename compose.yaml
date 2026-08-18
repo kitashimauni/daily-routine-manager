@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: routine_manager
+      POSTGRES_USER: routine
+      POSTGRES_PASSWORD: dev_password
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - routine-postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U routine -d routine_manager"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  routine-postgres-data:
