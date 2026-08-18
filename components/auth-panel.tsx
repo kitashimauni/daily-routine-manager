@@ -4,7 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRoutines } from "@/lib/routine-context";
 
 export function AuthPanel() {
-  const { error, login, register } = useRoutines();
+  const { error, login, register, retry } = useRoutines();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -36,7 +36,7 @@ export function AuthPanel() {
           <label htmlFor="auth-password">パスワード</label>
           <input id="auth-password" className="text-input" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={12} required value={password} onChange={(event) => setPassword(event.target.value)} />
           {mode === "register" && <p className="field-hint">12文字以上で入力してください。</p>}
-          {error && <p className="auth-error" role="alert">{error}</p>}
+          {error && <div className="auth-error" role="alert"><span>{error}</span><button type="button" onClick={() => void retry()}>再試行</button></div>}
           <button className="btn btn-primary auth-submit" type="submit" disabled={pending}>{pending ? "処理中…" : mode === "login" ? "ログイン" : "登録する"}</button>
         </form>
         <button className="auth-switch" type="button" onClick={() => setMode(mode === "login" ? "register" : "login")}>

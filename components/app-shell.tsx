@@ -19,7 +19,7 @@ function isActive(pathname: string, href: string) {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { authHydrated, error, logout, user } = useRoutines();
+  const { authHydrated, error, logout, retry, user } = useRoutines();
   if (!authHydrated) return <div className="auth-shell"><div className="auth-card card"><div className="skeleton" /></div></div>;
   if (!user) return <AuthPanel />;
 
@@ -55,7 +55,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
           <span className="brand-subtitle">DAILY PRACTICE</span>
         </header>
-        <main>{error && <div className="app-error" role="status">{error}</div>}{children}</main>
+        <main>
+          {error && <div className="app-error" role="alert"><span>{error}</span><button type="button" onClick={() => void retry()}>再試行</button></div>}
+          {children}
+        </main>
         <nav className="mobile-nav" aria-label="メインナビゲーション">
           {navigation.map((item) => (
             <Link key={item.href} href={item.href} className={`mobile-nav-link ${isActive(pathname, item.href) ? "active" : ""}`}>

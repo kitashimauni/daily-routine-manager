@@ -219,11 +219,19 @@ a { color: inherit; text-decoration: none; }
 .auth-switch { background: transparent; border: 0; color: var(--blue); display: block; font-size: 11px; margin: 20px auto 0; padding: 4px; }
 .auth-switch:hover { text-decoration: underline; }
 .auth-error, .app-error { background: #fff0ed; border-radius: 8px; color: #b85f4c; font-size: 11px; line-height: 1.6; padding: 10px 12px; }
+.auth-error { align-items: center; display: flex; gap: 12px; justify-content: space-between; }
+.auth-error button { background: transparent; border: 0; color: #a34f3d; font-size: 11px; font-weight: 700; padding: 3px 0; text-decoration: underline; }
 .account-panel { border-top: 1px solid rgba(255,255,255,.1); display: grid; gap: 8px; margin-top: auto; padding: 16px 12px 0; }
 .account-email { color: #d7e5e8; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-logout { background: transparent; border: 0; color: #9db9c5; font-size: 11px; padding: 4px 0; text-align: left; }
 .account-logout:hover { color: #fff; }
-.app-error { margin: 20px auto 0; max-width: 1110px; }
+.app-error { align-items: center; display: flex; gap: 16px; justify-content: space-between; margin: 20px auto 0; max-width: 1110px; }
+.app-error button { background: transparent; border: 0; color: #a34f3d; font-size: 11px; font-weight: 700; padding: 3px 0; text-decoration: underline; }
+.error-shell { align-items: center; display: flex; justify-content: center; min-height: 100vh; padding: 24px; }
+.error-card { max-width: 520px; padding: 32px; width: 100%; }
+.error-card h1 { color: var(--navy); font-size: 28px; margin: 0; }
+.error-card > p:not(.eyebrow) { color: var(--muted); font-size: 13px; line-height: 1.8; margin: 12px 0 0; }
+.error-actions { display: flex; gap: 8px; margin-top: 24px; }
 
 @media (max-width: 860px) {
   .sidebar { display: none; }

@@ -22,6 +22,12 @@ test("registers, records, edits, disables, and restores an isolated routine flow
   await page.getByRole("button", { name: "登録する" }).click();
   await expect(page.getByText(firstEmail)).toBeVisible();
 
+  await page.goto("/?date=abc");
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("heading", { name: "今日のルーティーン" })).toBeVisible();
+  await page.goto("/?date=2026-02-31");
+  await expect(page).toHaveURL(/\/$/);
+
   await page.getByRole("link", { name: "Routines" }).click();
   await page.getByLabel("内容").fill("E2Eで検証する");
   await page.getByLabel("開始日").fill(yesterdayDate);
@@ -90,4 +96,25 @@ test("registers, records, edits, disables, and restores an isolated routine flow
   await expect(page.getByText(secondEmail)).toBeVisible();
   await page.getByRole("link", { name: "Today" }).click();
   await expect(page.getByText("E2Eで編集後")).toHaveCount(0);
+});
+
+test("clears stale routine data after an authenticated API returns 401", async ({ page }) => {
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-session-${unique}@example.com`;
+  const password = "correct-horse-battery-staple";
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "初めて利用する方はこちら" }).click();
+  await page.getByLabel("メールアドレス").fill(email);
+  await page.getByLabel("パスワード").fill(password);
+  await page.getByRole("button", { name: "登録する" }).click();
+  await expect(page.getByText("体を動かす")).toBeVisible();
+
+  await page.route("**/api/routines/*/log", async (route) => {
+    await route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "ログインが必要です。" }) });
+  });
+  await page.getByRole("button", { name: "体を動かすを完了にする" }).click();
+  await expect(page.getByRole("heading", { name: "ログイン" })).toBeVisible();
+  await expect(page.getByText("体を動かす")).toHaveCount(0);
+  await expect(page.locator(".auth-error")).toContainText("セッションの有効期限が切れました");
 });

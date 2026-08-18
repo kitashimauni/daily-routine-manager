@@ -28,16 +28,28 @@ interface RoutineContextValue {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  retry: () => Promise<void>;
 }
 
 const RoutineContext = createContext<RoutineContextValue | null>(null);
+
+export class ApiRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
+
+function isUnauthorizedError(error: unknown) {
+  return Boolean(error && typeof error === "object" && "status" in error && error.status === 401);
+}
 
 async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
   const response = await fetch(input, { ...init, credentials: "same-origin", headers });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : "サーバーでエラーが発生しました。");
+  if (!response.ok) throw new ApiRequestError(typeof body.error === "string" ? body.error : "サーバーでエラーが発生しました。", response.status);
   return body as T;
 }
 
@@ -59,6 +71,13 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
     setHydrated(true);
   }, []);
 
+  const invalidateSession = useCallback((message = "セッションの有効期限が切れました。再度ログインしてください。") => {
+    setUser(null);
+    resetData();
+    setAuthHydrated(true);
+    setError(message);
+  }, [resetData]);
+
   const loadRoutineData = useCallback(async () => {
     const data = await requestJson<RoutineDataResponse>("/api/routines");
     setRoutines(data.routines);
@@ -68,22 +87,23 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
 
   const refreshSession = useCallback(async () => {
     setAuthHydrated(false);
-    setHydrated(false);
     setError(null);
     try {
       const response = await requestJson<{ user: AuthUser | null }>("/api/auth/session");
       setUser(response.user);
-      if (response.user) await loadRoutineData();
+      if (response.user) {
+        setHydrated(false);
+        await loadRoutineData();
+      }
       else resetData();
     } catch (requestError) {
-      setUser(null);
-      resetData();
-      setError(errorMessage(requestError));
+      if (isUnauthorizedError(requestError)) invalidateSession();
+      else setError(errorMessage(requestError));
     } finally {
       setAuthHydrated(true);
       setHydrated(true);
     }
-  }, [loadRoutineData, resetData]);
+  }, [invalidateSession, loadRoutineData, resetData]);
 
   useEffect(() => {
     void refreshSession();
@@ -91,30 +111,37 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
 
   const authenticate = useCallback(async (endpoint: string, email: string, password: string) => {
     setError(null);
+    setAuthHydrated(false);
+    setHydrated(false);
     try {
       const response = await requestJson<{ user: AuthUser }>(endpoint, { method: "POST", body: JSON.stringify({ email, password }) });
       setUser(response.user);
       await loadRoutineData();
-      setAuthHydrated(true);
     } catch (requestError) {
+      setUser(null);
+      resetData();
       setError(errorMessage(requestError));
       throw requestError;
+    } finally {
+      setAuthHydrated(true);
+      setHydrated(true);
     }
-  }, [loadRoutineData]);
+  }, [loadRoutineData, resetData]);
 
   const login = useCallback((email: string, password: string) => authenticate("/api/auth/login", email, password), [authenticate]);
   const register = useCallback((email: string, password: string) => authenticate("/api/auth/register", email, password), [authenticate]);
 
   const logout = useCallback(async () => {
+    setError(null);
     try {
       await requestJson<{ ok: true }>("/api/auth/logout", { method: "POST" });
       setUser(null);
-      setError(null);
       resetData();
     } catch (requestError) {
-      setError(errorMessage(requestError));
+      if (isUnauthorizedError(requestError)) invalidateSession();
+      else setError(errorMessage(requestError));
     }
-  }, [resetData]);
+  }, [invalidateSession, resetData]);
 
   const getDailyRoutines = useCallback((date: string): DailyRoutines => getDailyRoutinesForDate(routines, logs, date), [logs, routines]);
 
@@ -133,9 +160,10 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
         return next;
       });
     } catch (requestError) {
-      setError(errorMessage(requestError));
+      if (isUnauthorizedError(requestError)) invalidateSession();
+      else setError(errorMessage(requestError));
     }
-  }, [logs]);
+  }, [invalidateSession, logs]);
 
   const addRoutine = useCallback(async (input: RoutineInput) => {
     setError(null);
@@ -143,10 +171,11 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
       const response = await requestJson<{ routine: Routine }>("/api/routines", { method: "POST", body: JSON.stringify(input) });
       setRoutines((current) => [...current, response.routine]);
     } catch (requestError) {
-      setError(errorMessage(requestError));
+      if (isUnauthorizedError(requestError)) invalidateSession();
+      else setError(errorMessage(requestError));
       throw requestError;
     }
-  }, []);
+  }, [invalidateSession]);
 
   const updateRoutine = useCallback(async (routineId: string, input: RoutineInput) => {
     setError(null);
@@ -154,26 +183,30 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
       const response = await requestJson<{ routine: Routine }>(`/api/routines/${encodeURIComponent(routineId)}`, { method: "PATCH", body: JSON.stringify(input) });
       setRoutines((current) => current.map((routine) => routine.id === routineId ? response.routine : routine));
     } catch (requestError) {
-      setError(errorMessage(requestError));
+      if (isUnauthorizedError(requestError)) invalidateSession();
+      else setError(errorMessage(requestError));
       throw requestError;
     }
-  }, []);
+  }, [invalidateSession]);
 
   const changeRoutineState = useCallback(async (routineId: string, action: "deactivate" | "reactivate") => {
+    setError(null);
     try {
       const response = await requestJson<{ routine: Routine }>(`/api/routines/${encodeURIComponent(routineId)}`, { method: "POST", body: JSON.stringify({ action }) });
       setRoutines((current) => current.map((routine) => routine.id === routineId ? response.routine : routine));
     } catch (requestError) {
-      setError(errorMessage(requestError));
+      if (isUnauthorizedError(requestError)) invalidateSession();
+      else setError(errorMessage(requestError));
     }
-  }, []);
+  }, [invalidateSession]);
 
   const deactivateRoutine = useCallback((routineId: string) => changeRoutineState(routineId, "deactivate"), [changeRoutineState]);
   const reactivateRoutine = useCallback((routineId: string) => changeRoutineState(routineId, "reactivate"), [changeRoutineState]);
+  const retry = useCallback(() => refreshSession(), [refreshSession]);
 
   const value = useMemo(
-    () => ({ user, authHydrated, error, routines, logs, hydrated, getDailyRoutines, isCompleted, toggleRoutine, addRoutine, updateRoutine, deactivateRoutine, reactivateRoutine, login, register, logout }),
-    [addRoutine, authHydrated, deactivateRoutine, error, getDailyRoutines, hydrated, isCompleted, login, logs, logout, reactivateRoutine, register, routines, toggleRoutine, updateRoutine, user],
+    () => ({ user, authHydrated, error, routines, logs, hydrated, getDailyRoutines, isCompleted, toggleRoutine, addRoutine, updateRoutine, deactivateRoutine, reactivateRoutine, login, register, logout, retry }),
+    [addRoutine, authHydrated, deactivateRoutine, error, getDailyRoutines, hydrated, isCompleted, login, logs, logout, reactivateRoutine, register, retry, routines, toggleRoutine, updateRoutine, user],
   );
 
   return <RoutineContext.Provider value={value}>{children}</RoutineContext.Provider>;

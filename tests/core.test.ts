@@ -3,8 +3,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { assertAuthRateLimit } from "@/lib/auth-rate-limit";
 import { getCurrentUser, loginUser, logoutUser, registerUser, removeExpiredSessions } from "@/lib/auth";
 import { routines, sessions, users } from "@/lib/db/schema";
+import { isValidDateKey } from "@/lib/date";
 import { getDailyRoutinesForDate } from "@/lib/routine-view";
-import { createRoutineForUser, deactivateRoutineForUser, reactivateRoutineForUser, setRoutineLog, updateRoutineForUser } from "@/lib/routine-service";
+import { createRoutineForUser, deactivateRoutineForUser, parseRoutineInput, reactivateRoutineForUser, setRoutineLog, updateRoutineForUser } from "@/lib/routine-service";
 import { assertSafeTestDatabaseUrl } from "@/scripts/test-database-safety.mjs";
 import { testDb, testSql } from "@/tests/setup";
 import { createCookieStore, createTestUser, TEST_TODAY } from "@/tests/helpers";
@@ -22,6 +23,20 @@ describe("test database safety", () => {
   it("rejects non-test databases and mismatched application URLs", () => {
     expect(() => assertSafeTestDatabaseUrl("postgresql://routine:password@localhost:5432/routine_manager")).toThrow("routine_test");
     expect(() => assertSafeTestDatabaseUrl("postgresql://routine_test:password@localhost:5433/routine_test", "postgresql://routine:password@localhost:5432/routine_manager")).toThrow("must match exactly");
+  });
+});
+
+describe("date input validation", () => {
+  it("accepts real date keys and rejects malformed or nonexistent dates", () => {
+    expect(isValidDateKey("2026-02-28")).toBe(true);
+    expect(isValidDateKey("2026-02-29")).toBe(false);
+    expect(isValidDateKey("2026-02-31")).toBe(false);
+    expect(isValidDateKey("2026-2-1")).toBe(false);
+    expect(isValidDateKey("not-a-date")).toBe(false);
+  });
+
+  it("uses the same strict validation for routine periods", () => {
+    expect(() => parseRoutineInput({ content: "検証", priority: "required", daysOfWeek: [1], startDate: "2026-02-31", isActive: true })).toThrow("期間の指定が不正です。");
   });
 });
 
