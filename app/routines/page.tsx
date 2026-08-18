@@ -10,7 +10,7 @@ type RoutineFormInput = Omit<RoutineInput, "isActive">;
 
 interface RoutineFormProps {
   routine?: Routine;
-  onSubmit: (input: RoutineFormInput) => void;
+  onSubmit: (input: RoutineFormInput) => Promise<void>;
   onCancel?: () => void;
   submitLabel?: string;
 }
@@ -21,18 +21,26 @@ function RoutineForm({ routine, onSubmit, onCancel, submitLabel = "追加する"
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>(routine?.daysOfWeek ?? [1, 2, 3, 4, 5]);
   const [startDate, setStartDate] = useState(routine?.startDate ?? getTodayDate());
   const [endDate, setEndDate] = useState(routine?.endDate ?? "");
+  const [submitting, setSubmitting] = useState(false);
 
   const toggleDay = (day: number) => setDaysOfWeek((current) => current.includes(day) ? current.filter((value) => value !== day) : [...current, day].sort());
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!content.trim() || daysOfWeek.length === 0 || !startDate) return;
-    onSubmit({ content: content.trim(), priority, daysOfWeek, startDate, endDate: endDate || undefined });
-    if (!routine) {
-      setContent("");
-      setPriority("required");
-      setDaysOfWeek([1, 2, 3, 4, 5]);
-      setStartDate(getTodayDate());
-      setEndDate("");
+    if (submitting || !content.trim() || daysOfWeek.length === 0 || !startDate) return;
+    setSubmitting(true);
+    try {
+      await onSubmit({ content: content.trim(), priority, daysOfWeek, startDate, endDate: endDate || undefined });
+      if (!routine) {
+        setContent("");
+        setPriority("required");
+        setDaysOfWeek([1, 2, 3, 4, 5]);
+        setStartDate(getTodayDate());
+        setEndDate("");
+      }
+    } catch {
+      // The provider exposes the API error while preserving the entered values.
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -65,8 +73,8 @@ function RoutineForm({ routine, onSubmit, onCancel, submitLabel = "追加する"
         <p className="field-hint">開始日　　終了日（任意）</p>
       </div>
       <div className="form-actions">
-        {onCancel && <button type="button" className="btn btn-ghost" onClick={onCancel}>キャンセル</button>}
-        <button type="submit" className="btn btn-primary" disabled={!content.trim() || daysOfWeek.length === 0}>{submitLabel}</button>
+        {onCancel && <button type="button" className="btn btn-ghost" disabled={submitting} onClick={onCancel}>キャンセル</button>}
+        <button type="submit" className="btn btn-primary" disabled={submitting || !content.trim() || daysOfWeek.length === 0}>{submitting ? "保存中…" : submitLabel}</button>
       </div>
     </form>
   );
@@ -112,7 +120,7 @@ export default function RoutinesPage() {
         <section className="card form-card">
           <p className="eyebrow">New routine</p>
           <h2>新しいルーティーン</h2>
-          <RoutineForm onSubmit={(input) => addRoutine({ ...input, isActive: true })} />
+          <RoutineForm onSubmit={async (input) => { await addRoutine({ ...input, isActive: true }); }} />
         </section>
         <div className="routine-list">
           <section className="card management-section">
@@ -127,7 +135,7 @@ export default function RoutinesPage() {
         </div>
       </div>
 
-      {editing && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditing(null); }}><div className="modal card" role="dialog" aria-modal="true" aria-label="ルーティーンを編集"><div className="modal-head"><h2>ルーティーンを編集</h2><button className="icon-btn" type="button" aria-label="閉じる" onClick={() => setEditing(null)}><Icon name="x" size={17} /></button></div><RoutineForm routine={editing} submitLabel="変更を保存" onCancel={() => setEditing(null)} onSubmit={(input) => { updateRoutine(editing.id, { ...input, isActive: editing.isActive }); setEditing(null); }} /></div></div>}
+      {editing && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditing(null); }}><div className="modal card" role="dialog" aria-modal="true" aria-label="ルーティーンを編集"><div className="modal-head"><h2>ルーティーンを編集</h2><button className="icon-btn" type="button" aria-label="閉じる" onClick={() => setEditing(null)}><Icon name="x" size={17} /></button></div><RoutineForm routine={editing} submitLabel="変更を保存" onCancel={() => setEditing(null)} onSubmit={async (input) => { await updateRoutine(editing.id, { ...input, isActive: editing.isActive }); setEditing(null); }} /></div></div>}
     </div>
   );
 }

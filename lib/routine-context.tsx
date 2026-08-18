@@ -1,183 +1,135 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { addDays, getDayOfWeek, getTodayDate, isDateInRange, toDateKey } from "@/lib/date";
-import type { DailyRoutines, Priority, Routine, RoutineLog, RoutineLogs, RoutineRevision, RoutineWithStatus } from "@/lib/types";
+import { getDayOfWeek } from "@/lib/date";
+import type { AuthUser, DailyRoutines, Routine, RoutineInput, RoutineLog, RoutineLogs, RoutineWithStatus } from "@/lib/types";
 
-const STORAGE_KEY = "daily-routine-manager:v1";
+export type { RoutineInput } from "@/lib/types";
 
-interface StoredData {
+interface RoutineDataResponse {
   routines: Routine[];
   logs: RoutineLogs;
 }
 
-export interface RoutineInput {
-  content: string;
-  priority: Priority;
-  daysOfWeek: number[];
-  startDate: string;
-  endDate?: string;
-  isActive: boolean;
-}
-
 interface RoutineContextValue {
+  user: AuthUser | null;
+  authHydrated: boolean;
+  error: string | null;
   routines: Routine[];
   logs: RoutineLogs;
   hydrated: boolean;
   getDailyRoutines: (date: string) => DailyRoutines;
   isCompleted: (routineId: string, date: string) => boolean;
-  toggleRoutine: (routineId: string, date: string) => void;
-  addRoutine: (input: RoutineInput) => void;
-  updateRoutine: (routineId: string, input: RoutineInput) => void;
-  deactivateRoutine: (routineId: string) => void;
-  reactivateRoutine: (routineId: string) => void;
+  toggleRoutine: (routineId: string, date: string) => Promise<void>;
+  addRoutine: (input: RoutineInput) => Promise<void>;
+  updateRoutine: (routineId: string, input: RoutineInput) => Promise<void>;
+  deactivateRoutine: (routineId: string) => Promise<void>;
+  reactivateRoutine: (routineId: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
 }
 
 const RoutineContext = createContext<RoutineContextValue | null>(null);
 
-function revisionFromRoutine(routine: Omit<Routine, "revisions">, id = `legacy-${routine.id}`): RoutineRevision {
-  return {
-    id,
-    routineId: routine.id,
-    content: routine.content,
-    priority: routine.priority,
-    daysOfWeek: routine.daysOfWeek,
-    startDate: routine.startDate,
-    endDate: routine.endDate,
-    isActive: routine.isActive,
-    createdAt: routine.createdAt,
-  };
+async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+  const response = await fetch(input, { ...init, credentials: "same-origin", headers });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : "サーバーでエラーが発生しました。");
+  return body as T;
 }
 
-function normalizeRoutine(routine: Routine): Routine {
-  if (Array.isArray(routine.revisions) && routine.revisions.length > 0) return routine;
-
-  const today = getTodayDate();
-  const base = revisionFromRoutine(routine);
-  if (routine.isActive) return { ...routine, revisions: [base] };
-
-  const deactivatedOn = dateFromTimestamp(routine.updatedAt, today);
-  const historicalEnd = addDays(deactivatedOn, -1);
-  const historical = base.startDate <= historicalEnd
-    ? [{ ...base, id: `${base.id}-historical`, isActive: true, endDate: base.endDate && base.endDate < historicalEnd ? base.endDate : historicalEnd }]
-    : [];
-  const inactive: RoutineRevision = { ...base, id: `${base.id}-inactive`, startDate: deactivatedOn, endDate: undefined, isActive: false };
-  return { ...routine, revisions: [...historical, inactive] };
-}
-
-function dateFromTimestamp(timestamp: string | undefined, fallback: string) {
-  const parsed = new Date(timestamp ?? "");
-  return Number.isNaN(parsed.getTime()) ? fallback : toDateKey(parsed);
-}
-
-function migrateStoredData(data: StoredData): StoredData {
-  return {
-    routines: (data.routines ?? []).map(normalizeRoutine),
-    logs: data.logs ?? {},
-  };
-}
-
-function makeRevision(routineId: string, input: RoutineInput, startDate: string, timestamp: string): RoutineRevision {
-  return {
-    id: crypto.randomUUID(),
-    routineId,
-    content: input.content,
-    priority: input.priority,
-    daysOfWeek: input.daysOfWeek,
-    startDate,
-    endDate: input.endDate,
-    isActive: input.isActive,
-    createdAt: timestamp,
-  };
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "サーバーでエラーが発生しました。";
 }
 
 function revisionForDate(routine: Routine, date: string) {
   return [...routine.revisions]
     .sort((left, right) => right.startDate.localeCompare(left.startDate))
-    .find((revision) => isDateInRange(date, revision.startDate, revision.endDate));
-}
-
-function inputFromRevision(revision: RoutineRevision, overrides: Partial<RoutineInput> = {}): RoutineInput {
-  return {
-    content: revision.content,
-    priority: revision.priority,
-    daysOfWeek: revision.daysOfWeek,
-    startDate: revision.startDate,
-    endDate: revision.endDate,
-    isActive: revision.isActive,
-    ...overrides,
-  };
-}
-
-function withNewRevision(routine: Routine, input: RoutineInput, effectiveDate: string, timestamp: string): Routine {
-  const today = getTodayDate();
-  const endDate = input.endDate && input.endDate >= effectiveDate ? input.endDate : undefined;
-  const nextInput = { ...input, startDate: effectiveDate, endDate };
-  const previous = routine.revisions
-    .filter((revision) => effectiveDate > today ? revision.startDate <= today : revision.startDate < effectiveDate)
-    .map((revision) => {
-      if (revision.endDate && revision.endDate < effectiveDate) return revision;
-      return { ...revision, endDate: addDays(effectiveDate, -1) };
-    });
-  const nextRevision = makeRevision(routine.id, nextInput, effectiveDate, timestamp);
-  return { ...routine, ...nextInput, revisions: [...previous, nextRevision], updatedAt: timestamp };
-}
-
-function seedRoutine(id: string, content: string, priority: Priority, daysOfWeek: number[], today: string, timestamp: string): Routine {
-  const routine = { id, content, priority, daysOfWeek, startDate: today, isActive: true, createdAt: timestamp, updatedAt: timestamp };
-  return { ...routine, revisions: [revisionFromRoutine(routine, `${id}-revision`)] };
-}
-
-function createSeedData(today: string): StoredData {
-  const timestamp = new Date().toISOString();
-  return {
-    routines: [
-      seedRoutine("seed-move", "体を動かす", "required", [1, 2, 3, 4, 5], today, timestamp),
-      seedRoutine("seed-reading", "本を読む", "required", [0, 1, 2, 3, 4, 5, 6], today, timestamp),
-      seedRoutine("seed-english", "英語を勉強する", "optional", [1, 2, 3, 4, 5], today, timestamp),
-      seedRoutine("seed-journal", "日記を書く", "optional", [0, 2, 4, 6], today, timestamp),
-    ],
-    // Sample routines are intentionally incomplete until the user checks them.
-    logs: {},
-  };
+    .find((revision) => date >= revision.startDate && (!revision.endDate || date <= revision.endDate));
 }
 
 export function RoutineProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [authHydrated, setAuthHydrated] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [logs, setLogs] = useState<RoutineLogs>({});
   const [hydrated, setHydrated] = useState(false);
 
-  useEffect(() => {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    const initial = raw ? migrateStoredData(JSON.parse(raw) as StoredData) : createSeedData(getTodayDate());
-    setRoutines(initial.routines);
-    setLogs(initial.logs);
+  const resetData = useCallback(() => {
+    setRoutines([]);
+    setLogs({});
     setHydrated(true);
   }, []);
 
+  const loadRoutineData = useCallback(async () => {
+    const data = await requestJson<RoutineDataResponse>("/api/routines");
+    setRoutines(data.routines);
+    setLogs(data.logs);
+    setHydrated(true);
+  }, []);
+
+  const refreshSession = useCallback(async () => {
+    setAuthHydrated(false);
+    setHydrated(false);
+    setError(null);
+    try {
+      const response = await requestJson<{ user: AuthUser | null }>("/api/auth/session");
+      setUser(response.user);
+      if (response.user) await loadRoutineData();
+      else resetData();
+    } catch (requestError) {
+      setUser(null);
+      resetData();
+      setError(errorMessage(requestError));
+    } finally {
+      setAuthHydrated(true);
+      setHydrated(true);
+    }
+  }, [loadRoutineData, resetData]);
+
   useEffect(() => {
-    if (!hydrated) return;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ routines, logs } satisfies StoredData));
-  }, [hydrated, routines, logs]);
+    void refreshSession();
+  }, [refreshSession]);
+
+  const authenticate = useCallback(async (endpoint: string, email: string, password: string) => {
+    setError(null);
+    try {
+      const response = await requestJson<{ user: AuthUser }>(endpoint, { method: "POST", body: JSON.stringify({ email, password }) });
+      setUser(response.user);
+      await loadRoutineData();
+      setAuthHydrated(true);
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+      throw requestError;
+    }
+  }, [loadRoutineData]);
+
+  const login = useCallback((email: string, password: string) => authenticate("/api/auth/login", email, password), [authenticate]);
+  const register = useCallback((email: string, password: string) => authenticate("/api/auth/register", email, password), [authenticate]);
+
+  const logout = useCallback(async () => {
+    try {
+      await requestJson<{ ok: true }>("/api/auth/logout", { method: "POST" });
+      setUser(null);
+      setError(null);
+      resetData();
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+    }
+  }, [resetData]);
 
   const getDailyRoutines = useCallback((date: string): DailyRoutines => {
     const dayOfWeek = getDayOfWeek(date);
     const scheduled = routines.flatMap((routine): RoutineWithStatus[] => {
       const revision = revisionForDate(routine, date);
       if (!revision || !revision.isActive || !revision.daysOfWeek.includes(dayOfWeek)) return [];
-
-      const routineForDate: Routine = {
-        ...routine,
-        content: revision.content,
-        priority: revision.priority,
-        daysOfWeek: revision.daysOfWeek,
-        startDate: revision.startDate,
-        endDate: revision.endDate,
-        isActive: revision.isActive,
-      };
+      const routineForDate: Routine = { ...routine, content: revision.content, priority: revision.priority, daysOfWeek: revision.daysOfWeek, startDate: revision.startDate, endDate: revision.endDate, isActive: revision.isActive };
       return [{ routine: routineForDate, completed: Boolean(logs[`${routine.id}__${date}`]) }];
     });
-
     return {
       required: scheduled.filter(({ routine }) => routine.priority === "required"),
       optional: scheduled.filter(({ routine }) => routine.priority === "optional"),
@@ -186,65 +138,60 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
 
   const isCompleted = useCallback((routineId: string, date: string) => Boolean(logs[`${routineId}__${date}`]), [logs]);
 
-  const toggleRoutine = useCallback((routineId: string, date: string) => {
-    if (date > getTodayDate()) return;
-    const key = `${routineId}__${date}`;
-    setLogs((current) => {
-      const next = { ...current };
-      if (next[key]) {
-        delete next[key];
-      } else {
-        const timestamp = new Date().toISOString();
-        const log: RoutineLog = { id: crypto.randomUUID(), routineId, date, createdAt: timestamp, updatedAt: timestamp };
-        next[key] = log;
-      }
-      return next;
-    });
+  const toggleRoutine = useCallback(async (routineId: string, date: string) => {
+    const completed = !Boolean(logs[`${routineId}__${date}`]);
+    setError(null);
+    try {
+      const response = await requestJson<{ log: RoutineLog | null }>(`/api/routines/${encodeURIComponent(routineId)}/log`, { method: "PUT", body: JSON.stringify({ date, completed }) });
+      setLogs((current) => {
+        const next = { ...current };
+        const key = `${routineId}__${date}`;
+        if (response.log) next[key] = response.log;
+        else delete next[key];
+        return next;
+      });
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+    }
+  }, [logs]);
+
+  const addRoutine = useCallback(async (input: RoutineInput) => {
+    setError(null);
+    try {
+      const response = await requestJson<{ routine: Routine }>("/api/routines", { method: "POST", body: JSON.stringify(input) });
+      setRoutines((current) => [...current, response.routine]);
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+      throw requestError;
+    }
   }, []);
 
-  const addRoutine = useCallback((input: RoutineInput) => {
-    const timestamp = new Date().toISOString();
-    const routineId = crypto.randomUUID();
-    const routine = { ...input, id: routineId, createdAt: timestamp, updatedAt: timestamp };
-    setRoutines((current) => [...current, { ...routine, revisions: [makeRevision(routineId, input, input.startDate, timestamp)] }]);
+  const updateRoutine = useCallback(async (routineId: string, input: RoutineInput) => {
+    setError(null);
+    try {
+      const response = await requestJson<{ routine: Routine }>(`/api/routines/${encodeURIComponent(routineId)}`, { method: "PATCH", body: JSON.stringify(input) });
+      setRoutines((current) => current.map((routine) => routine.id === routineId ? response.routine : routine));
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+      throw requestError;
+    }
   }, []);
 
-  const updateRoutine = useCallback((routineId: string, input: RoutineInput) => {
-    const today = getTodayDate();
-    const timestamp = new Date().toISOString();
-    setRoutines((current) => current.map((routine) => {
-      if (routine.id !== routineId) return routine;
-      const deactivating = routine.isActive && !input.isActive;
-      const effectiveDate = deactivating ? addDays(today, 1) : input.startDate > today ? input.startDate : today;
-      const nextInput = deactivating ? { ...input, startDate: effectiveDate, endDate: undefined } : input;
-      return withNewRevision(routine, nextInput, effectiveDate, timestamp);
-    }));
+  const changeRoutineState = useCallback(async (routineId: string, action: "deactivate" | "reactivate") => {
+    try {
+      const response = await requestJson<{ routine: Routine }>(`/api/routines/${encodeURIComponent(routineId)}`, { method: "POST", body: JSON.stringify({ action }) });
+      setRoutines((current) => current.map((routine) => routine.id === routineId ? response.routine : routine));
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+    }
   }, []);
 
-  const deactivateRoutine = useCallback((routineId: string) => {
-    const today = getTodayDate();
-    const effectiveDate = addDays(today, 1);
-    const timestamp = new Date().toISOString();
-    setRoutines((current) => current.map((routine) => {
-      if (routine.id !== routineId || !routine.isActive) return routine;
-      const currentRevision = revisionForDate(routine, today) ?? revisionFromRoutine(routine);
-      return withNewRevision(routine, inputFromRevision(currentRevision, { isActive: false, startDate: effectiveDate, endDate: undefined }), effectiveDate, timestamp);
-    }));
-  }, []);
-
-  const reactivateRoutine = useCallback((routineId: string) => {
-    const today = getTodayDate();
-    const timestamp = new Date().toISOString();
-    setRoutines((current) => current.map((routine) => {
-      if (routine.id !== routineId || routine.isActive) return routine;
-      const currentRevision = revisionForDate(routine, today) ?? [...routine.revisions].sort((left, right) => right.startDate.localeCompare(left.startDate))[0] ?? revisionFromRoutine(routine);
-      return withNewRevision(routine, inputFromRevision(currentRevision, { isActive: true, startDate: today, endDate: undefined }), today, timestamp);
-    }));
-  }, []);
+  const deactivateRoutine = useCallback((routineId: string) => changeRoutineState(routineId, "deactivate"), [changeRoutineState]);
+  const reactivateRoutine = useCallback((routineId: string) => changeRoutineState(routineId, "reactivate"), [changeRoutineState]);
 
   const value = useMemo(
-    () => ({ routines, logs, hydrated, getDailyRoutines, isCompleted, toggleRoutine, addRoutine, updateRoutine, deactivateRoutine, reactivateRoutine }),
-    [addRoutine, deactivateRoutine, getDailyRoutines, hydrated, isCompleted, logs, reactivateRoutine, routines, toggleRoutine, updateRoutine],
+    () => ({ user, authHydrated, error, routines, logs, hydrated, getDailyRoutines, isCompleted, toggleRoutine, addRoutine, updateRoutine, deactivateRoutine, reactivateRoutine, login, register, logout }),
+    [addRoutine, authHydrated, deactivateRoutine, error, getDailyRoutines, hydrated, isCompleted, login, logs, logout, reactivateRoutine, register, routines, toggleRoutine, updateRoutine, user],
   );
 
   return <RoutineContext.Provider value={value}>{children}</RoutineContext.Provider>;

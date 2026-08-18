@@ -11,9 +11,12 @@
 
 ## 開発
 
-```bash
+```powershell
 mise install
 pnpm install
+Copy-Item .env.example .env
+docker compose up -d postgres
+pnpm db:migrate
 pnpm dev
 ```
 
@@ -21,12 +24,27 @@ Windowsでmise本体が未導入の場合は、先に `scoop install mise` ま�
 
 通常のブラウザでは `http://localhost:3000` を開きます。
 
-現状はDB接続情報がないため、データはブラウザの `localStorage` に保存しています。詳しい移行方針は [`docs/implementation-notes.md`](docs/implementation-notes.md) を参照してください。
+初回アクセス時にアカウントを登録して利用します。ルーティーンと完了ログはPostgreSQLにユーザー単位で保存されるため、ブラウザを変えても同じアカウントで参照できます。
+
+`.env` には次の環境変数を設定します。
+
+- `DATABASE_URL` — PostgreSQL接続URL
+- `POSTGRES_PORT` — Composeで公開するPostgreSQLポート（既定値は `5432`）
+- `APP_TIME_ZONE` — 日付の境界に使うIANAタイムゾーン（既定値は `Asia/Tokyo`）
+
+既存のブラウザ `localStorage` データは自動移行しません。本番用の永続化基盤へ切り替えるため、必要なデータはDB移行後に再登録してください。
+
+スキーマを変更した場合は、次の順にマイグレーションを生成・適用します。
+
+```bash
+pnpm db:generate
+pnpm db:migrate
+```
 
 ## 検証
 
 ```bash
-pnpm exec tsc --noEmit
-pnpm lint
-pnpm build
+mise exec -- pnpm exec tsc --noEmit
+mise exec -- pnpm lint
+mise exec -- pnpm build
 ```

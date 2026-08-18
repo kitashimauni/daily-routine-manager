@@ -13,6 +13,7 @@ function RoutineGroup({
   date,
   optional = false,
   readOnly,
+  pendingRoutineId,
   onToggle,
 }: {
   title: string;
@@ -20,6 +21,7 @@ function RoutineGroup({
   date: string;
   optional?: boolean;
   readOnly: boolean;
+  pendingRoutineId: string | null;
   onToggle: (id: string) => void;
 }) {
   const completed = items.filter((item) => item.completed).length;
@@ -37,7 +39,8 @@ function RoutineGroup({
             <button
               className={`routine-check ${done ? "checked" : ""}`}
               type="button"
-              disabled={readOnly}
+              disabled={readOnly || pendingRoutineId === routine.id}
+              aria-busy={pendingRoutineId === routine.id}
               aria-label={`${routine.content}を${done ? "未完了に戻す" : "完了にする"}`}
               onClick={() => onToggle(routine.id)}
             >
@@ -60,6 +63,7 @@ function RoutineGroup({
 export default function TodayPage() {
   const { hydrated, getDailyRoutines, toggleRoutine } = useRoutines();
   const [date, setDate] = useState("");
+  const [pendingRoutineId, setPendingRoutineId] = useState<string | null>(null);
 
   useEffect(() => {
     const queryDate = new URLSearchParams(window.location.search).get("date");
@@ -79,6 +83,16 @@ export default function TodayPage() {
     const nextDate = addDays(date, amount);
     setDate(nextDate);
     window.history.replaceState(null, "", `/?date=${nextDate}`);
+  };
+
+  const handleToggle = async (routineId: string) => {
+    if (pendingRoutineId) return;
+    setPendingRoutineId(routineId);
+    try {
+      await toggleRoutine(routineId, date);
+    } finally {
+      setPendingRoutineId(null);
+    }
   };
 
   if (!hydrated || !date) {
@@ -122,8 +136,8 @@ export default function TodayPage() {
       </section>
 
       <div className="routine-columns">
-        <RoutineGroup title="必ずやる" items={daily.required} date={date} readOnly={readOnly} onToggle={(id) => toggleRoutine(id, date)} />
-        <RoutineGroup title="できればやる" items={daily.optional} date={date} optional readOnly={readOnly} onToggle={(id) => toggleRoutine(id, date)} />
+        <RoutineGroup title="必ずやる" items={daily.required} date={date} readOnly={readOnly} pendingRoutineId={pendingRoutineId} onToggle={(id) => { void handleToggle(id); }} />
+        <RoutineGroup title="できればやる" items={daily.optional} date={date} optional readOnly={readOnly} pendingRoutineId={pendingRoutineId} onToggle={(id) => { void handleToggle(id); }} />
       </div>
     </div>
   );
