@@ -1,10 +1,18 @@
 import { expect, test } from "@playwright/test";
 
+function dateKey(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 test("registers, records, edits, disables, and restores an isolated routine flow", async ({ page }) => {
   const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const firstEmail = `e2e-${unique}@example.com`;
   const secondEmail = `e2e-other-${unique}@example.com`;
   const password = "correct-horse-battery-staple";
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayDate = dateKey(yesterday);
 
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "ログイン" })).toBeVisible();
@@ -16,12 +24,19 @@ test("registers, records, edits, disables, and restores an isolated routine flow
 
   await page.getByRole("link", { name: "Routines" }).click();
   await page.getByLabel("内容").fill("E2Eで検証する");
+  await page.getByLabel("開始日").fill(yesterdayDate);
   await page.getByRole("button", { name: "日", exact: true }).click();
   await page.getByRole("button", { name: "土", exact: true }).click();
   await page.getByRole("button", { name: "追加する" }).click();
   await expect(page.getByText("E2Eで検証する")).toBeVisible();
 
-  await page.getByRole("link", { name: "Today" }).click();
+  await page.goto(`/?date=${yesterdayDate}`);
+  const pastRoutineCheck = page.getByRole("button", { name: "E2Eで検証するを完了にする" });
+  await expect(pastRoutineCheck).toBeVisible();
+  await pastRoutineCheck.click();
+  await expect(page.getByRole("button", { name: "E2Eで検証するを未完了に戻す" })).toBeVisible();
+
+  await page.goto("/");
   const routineCheck = page.getByRole("button", { name: "E2Eで検証するを完了にする" });
   await expect(routineCheck).toBeVisible();
   await routineCheck.click();
@@ -42,6 +57,16 @@ test("registers, records, edits, disables, and restores an isolated routine flow
   await page.getByRole("dialog").getByRole("button", { name: "変更を保存" }).click();
   await expect(page.getByText("E2Eで編集後")).toBeVisible();
 
+  await page.goto(`/?date=${yesterdayDate}`);
+  await expect(page.getByRole("button", { name: "E2Eで検証するを未完了に戻す" })).toBeVisible();
+  await expect(page.getByText("E2Eで編集後")).toHaveCount(0);
+  await page.getByRole("link", { name: "Stats" }).click();
+  const previousStatsRow = page.locator(".stats-row").filter({ hasText: "E2Eで検証する" });
+  const currentStatsRow = page.locator(".stats-row").filter({ hasText: "E2Eで編集後" });
+  await expect(previousStatsRow).toContainText("1 / 1回");
+  await expect(currentStatsRow).toContainText("1 / 1回");
+
+  await page.getByRole("link", { name: "Routines" }).click();
   const editedRow = page.locator(".managed-row").filter({ hasText: "E2Eで編集後" });
   page.on("dialog", (dialog) => dialog.accept());
   await editedRow.getByRole("button", { name: /無効化/ }).click();

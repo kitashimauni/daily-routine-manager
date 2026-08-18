@@ -8,6 +8,7 @@ const child = spawn(command, args, {
   env: {
     ...process.env,
     APP_TIME_ZONE: process.env.APP_TIME_ZONE ?? "Asia/Tokyo",
+    ALLOW_TEST_DATABASE_RESET: "true",
     DATABASE_URL: testDatabaseUrl,
     TEST_DATABASE_URL: testDatabaseUrl,
   },

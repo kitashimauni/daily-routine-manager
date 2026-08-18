@@ -5,8 +5,11 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { closeDatabaseForTests } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
+import { assertSafeTestDatabaseUrl, assertTestDatabaseResetAllowed } from "@/scripts/test-database-safety.mjs";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL ?? "postgresql://routine_test:test_password@localhost:5433/routine_test";
+assertSafeTestDatabaseUrl(testDatabaseUrl, process.env.DATABASE_URL);
+assertTestDatabaseResetAllowed();
 process.env.DATABASE_URL = testDatabaseUrl;
 process.env.APP_TIME_ZONE ??= "Asia/Tokyo";
 

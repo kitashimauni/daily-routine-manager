@@ -10,6 +10,7 @@ const playwrightCli = path.join(projectRoot, "node_modules", "@playwright", "tes
 const baseUrl = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 const env = {
   ...process.env,
+  ALLOW_TEST_DATABASE_RESET: "true",
   APP_TIME_ZONE: process.env.APP_TIME_ZONE ?? "Asia/Tokyo",
   DATABASE_URL: testDatabaseUrl,
   RESET_TEST_DATABASE: "true",

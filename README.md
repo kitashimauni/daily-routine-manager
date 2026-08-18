@@ -46,6 +46,7 @@ pnpm db:migrate
 GitHub Actions（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）で、Pull Requestと `main` へのpush時に、miseで固定したNode.js / pnpmを使って同じ検証を自動実行します。CIは専用のPostgreSQLサービスだけを使い、本番DBへ接続しません。
 
 テスト用PostgreSQLを起動して、履歴境界・ログ・認証・ユーザー分離の統合テストを実行します。テストDBは開発用DBとは別ポート・別データベースです。
+テストランナーは接続先DB名が `routine_test` であること、`DATABASE_URL` と `TEST_DATABASE_URL` が一致すること、破壊的リセットの明示フラグがあることを確認し、条件を満たさなければ停止します。
 
 ```powershell
 docker compose -f compose.test.yaml up -d --wait

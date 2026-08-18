@@ -5,6 +5,7 @@ import { getCurrentUser, loginUser, logoutUser, registerUser, removeExpiredSessi
 import { routines, sessions, users } from "@/lib/db/schema";
 import { getDailyRoutinesForDate } from "@/lib/routine-view";
 import { createRoutineForUser, deactivateRoutineForUser, reactivateRoutineForUser, setRoutineLog, updateRoutineForUser } from "@/lib/routine-service";
+import { assertSafeTestDatabaseUrl } from "@/scripts/test-database-safety.mjs";
 import { testDb, testSql } from "@/tests/setup";
 import { createCookieStore, createTestUser, TEST_TODAY } from "@/tests/helpers";
 
@@ -15,6 +16,13 @@ beforeAll(() => {
 
 afterAll(() => {
   vi.useRealTimers();
+});
+
+describe("test database safety", () => {
+  it("rejects non-test databases and mismatched application URLs", () => {
+    expect(() => assertSafeTestDatabaseUrl("postgresql://routine:password@localhost:5432/routine_manager")).toThrow("routine_test");
+    expect(() => assertSafeTestDatabaseUrl("postgresql://routine_test:password@localhost:5433/routine_test", "postgresql://routine:password@localhost:5432/routine_manager")).toThrow("must match exactly");
+  });
 });
 
 describe("routine views and revision boundaries", () => {
