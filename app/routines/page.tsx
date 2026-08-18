@@ -26,6 +26,14 @@ function RoutineForm({ routine, onSubmit, onCancel, submitLabel = "追加する"
     event.preventDefault();
     if (!content.trim() || daysOfWeek.length === 0 || !startDate) return;
     onSubmit({ content: content.trim(), priority, daysOfWeek, startDate, endDate: endDate || undefined, isActive });
+    if (!routine) {
+      setContent("");
+      setPriority("required");
+      setDaysOfWeek([1, 2, 3, 4, 5]);
+      setStartDate(getTodayDate());
+      setEndDate("");
+      setIsActive(true);
+    }
   };
 
   return (

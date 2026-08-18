@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Icon } from "@/components/icon";
-import { addMonths, addDays, daysInMonth, formatDateLong, formatMonth, getDayOfWeek, getTodayDate, monthStart, parseDateKey, toDateKey, WEEKDAYS } from "@/lib/date";
+import { addMonths, daysInMonth, formatDateLong, formatMonth, getDayOfWeek, getTodayDate, monthStart, parseDateKey, toDateKey, WEEKDAYS } from "@/lib/date";
 import { useRoutines } from "@/lib/routine-context";
 import type { CalendarStatus } from "@/lib/types";
 
@@ -20,6 +20,17 @@ export default function CalendarPage() {
   const today = getTodayDate();
   const [month, setMonth] = useState(monthStart(today));
   const [selectedDate, setSelectedDate] = useState(today);
+
+  const moveMonth = (amount: number) => {
+    const nextMonth = addMonths(month, amount);
+    const selectedDay = parseDateKey(selectedDate).getDate();
+    const nextDate = parseDateKey(nextMonth);
+    const nextSelectedDate = nextMonth.slice(0, 7) === today.slice(0, 7)
+      ? today
+      : toDateKey(new Date(nextDate.getFullYear(), nextDate.getMonth(), Math.min(selectedDay, daysInMonth(nextMonth))));
+    setMonth(nextMonth);
+    setSelectedDate(nextSelectedDate);
+  };
 
   const cells = useMemo(() => {
     const count = daysInMonth(month);
@@ -52,8 +63,8 @@ export default function CalendarPage() {
           <div className="calendar-toolbar">
             <h2 className="month-title">{formatMonth(month)}</h2>
             <div className="month-controls">
-              <button className="icon-btn" type="button" aria-label="前の月" onClick={() => setMonth(addMonths(month, -1))}><Icon name="chevron-left" size={17} /></button>
-              <button className="icon-btn" type="button" aria-label="次の月" onClick={() => setMonth(addMonths(month, 1))}><Icon name="chevron-right" size={17} /></button>
+              <button className="icon-btn" type="button" aria-label="前の月" onClick={() => moveMonth(-1)}><Icon name="chevron-left" size={17} /></button>
+              <button className="icon-btn" type="button" aria-label="次の月" onClick={() => moveMonth(1)}><Icon name="chevron-right" size={17} /></button>
             </div>
           </div>
           <div className="weekdays">{WEEKDAYS.map((day) => <span key={day}>{day}</span>)}</div>

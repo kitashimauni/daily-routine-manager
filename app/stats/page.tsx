@@ -20,7 +20,7 @@ function ProgressSummary({ priority, planned, completed }: { priority: Priority;
 }
 
 export default function StatsPage() {
-  const { hydrated, routines, getDailyRoutines, isCompleted } = useRoutines();
+  const { hydrated, routines, getDailyRoutines } = useRoutines();
   const today = getTodayDate();
   const [month, setMonth] = useState(monthStart(today));
   const [period, setPeriod] = useState<"month" | "30days">("month");
@@ -31,17 +31,42 @@ export default function StatsPage() {
 
   if (!hydrated) return <div className="page-wrap"><div className="skeleton" /></div>;
 
-  const activeRoutines = routines.filter((routine) => routine.isActive);
-  const rows = activeRoutines.map((routine) => {
-    const plannedDates = dates.filter((date) => getDailyRoutines(date).required.concat(getDailyRoutines(date).optional).some(({ routine: scheduled }) => scheduled.id === routine.id));
-    const completed = plannedDates.filter((date) => isCompleted(routine.id, date)).length;
-    return { routine, planned: plannedDates.length, completed, rate: plannedDates.length ? Math.round((completed / plannedDates.length) * 100) : 0 };
+  const entries = dates.flatMap((date) => {
+    const daily = getDailyRoutines(date);
+    return [...daily.required, ...daily.optional].map(({ routine, completed }) => ({
+      routineId: routine.id,
+      content: routine.content,
+      priority: routine.priority,
+      completed,
+    }));
   });
-  const required = rows.filter(({ routine }) => routine.priority === "required");
-  const optional = rows.filter(({ routine }) => routine.priority === "optional");
-  const total = (group: typeof rows) => ({ planned: group.reduce((sum, row) => sum + row.planned, 0), completed: group.reduce((sum, row) => sum + row.completed, 0) });
-  const requiredTotal = total(required);
-  const optionalTotal = total(optional);
+  const rows = routines.flatMap((routine) => {
+    const routineEntries = entries.filter((entry) => entry.routineId === routine.id);
+    const contents = Array.from(new Set(routineEntries.map((entry) => entry.content)));
+    if (contents.length === 0 && routine.isActive) contents.push(routine.content);
+    return contents.map((content) => {
+      const contentEntries = routineEntries.filter((entry) => entry.content === content);
+      const completed = contentEntries.filter((entry) => entry.completed).length;
+      const priorities = new Set(contentEntries.map((entry) => entry.priority));
+      const displayPriority = priorities.size === 0
+        ? routine.priority
+        : priorities.size === 1
+          ? Array.from(priorities)[0]
+          : undefined;
+      return {
+        key: `${routine.id}:${content}`,
+        routine,
+        content,
+        planned: contentEntries.length,
+        completed,
+        rate: contentEntries.length ? Math.round((completed / contentEntries.length) * 100) : 0,
+        displayPriority,
+      };
+    });
+  });
+  const total = (group: typeof entries) => ({ planned: group.length, completed: group.filter((entry) => entry.completed).length });
+  const requiredTotal = total(entries.filter((entry) => entry.priority === "required"));
+  const optionalTotal = total(entries.filter((entry) => entry.priority === "optional"));
 
   return (
     <div className="page-wrap">
@@ -51,7 +76,7 @@ export default function StatsPage() {
       </div>
       <div className="date-toolbar"><div className="date-nav"><button className="icon-btn" type="button" aria-label="前の月" onClick={() => setMonth(addMonths(month, -1))} disabled={period === "30days"}><Icon name="chevron-left" size={17} /></button><h2 className="date-title">{period === "month" ? formatMonth(month) : "直近30日"}</h2><button className="icon-btn" type="button" aria-label="次の月" onClick={() => setMonth(addMonths(month, 1))} disabled={period === "30days"}><Icon name="chevron-right" size={17} /></button></div></div>
       <div className="stats-hero"><ProgressSummary priority="required" planned={requiredTotal.planned} completed={requiredTotal.completed} /><ProgressSummary priority="optional" planned={optionalTotal.planned} completed={optionalTotal.completed} /></div>
-      <section className="card stats-list"><h2>ルーティーン別</h2>{rows.length === 0 ? <p className="routine-empty">ルーティーンを登録すると、ここに達成率が表示されます。</p> : rows.map(({ routine, planned, completed, rate }) => <div className="stats-row" key={routine.id}><div><div className="stats-routine-name">{routine.content}</div><div className="stats-routine-meta">{routine.priority === "required" ? "必ずやる" : "できればやる"} · {completed} / {planned}回</div></div><div className="stats-progress-track"><div className={`stats-progress-fill ${routine.priority === "optional" ? "optional" : ""}`} style={{ width: `${rate}%` }} /></div><div className="stats-percent">{rate}%</div></div>) }<p className="stats-note"><Icon name="check" size={13} /> 「必ずやる」の達成率を、その日の全体達成の基準にしています。曜日が対象外の日は予定回数に含めません。</p></section>
+      <section className="card stats-list"><h2>ルーティーン別</h2>{rows.length === 0 ? <p className="routine-empty">ルーティーンを登録すると、ここに達成率が表示されます。</p> : rows.map(({ key, content, planned, completed, rate, displayPriority }) => <div className="stats-row" key={key}><div><div className="stats-routine-name">{content}</div><div className="stats-routine-meta">{displayPriority === undefined ? "期間中に変更あり" : displayPriority === "required" ? "必ずやる" : "できればやる"} · {completed} / {planned}回</div></div><div className="stats-progress-track"><div className={`stats-progress-fill ${displayPriority === "optional" ? "optional" : ""}`} style={{ width: `${rate}%` }} /></div><div className="stats-percent">{rate}%</div></div>) }<p className="stats-note"><Icon name="check" size={13} /> 「必ずやる」の達成率を、その日の全体達成の基準にしています。曜日が対象外の日は予定回数に含めません。</p></section>
     </div>
   );
 }
