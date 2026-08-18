@@ -43,12 +43,36 @@ pnpm db:migrate
 
 ## 検証
 
-GitHub Actions（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）で、Pull Requestと `main` へのpush時に、miseで固定したNode.js / pnpmを使って同じ検証を自動実行します。CIは本番DBへ接続しません。
+GitHub Actions（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）で、Pull Requestと `main` へのpush時に、miseで固定したNode.js / pnpmを使って同じ検証を自動実行します。CIは専用のPostgreSQLサービスだけを使い、本番DBへ接続しません。
+
+テスト用PostgreSQLを起動して、履歴境界・ログ・認証・ユーザー分離の統合テストを実行します。テストDBは開発用DBとは別ポート・別データベースです。
+テストランナーは接続先DB名が `routine_test` であること、`DATABASE_URL` と `TEST_DATABASE_URL` が一致すること、破壊的リセットの明示フラグがあることを確認し、条件を満たさなければ停止します。
+
+```powershell
+docker compose -f compose.test.yaml up -d --wait
+mise exec -- pnpm test
+```
+
+主要なブラウザフローを実行する場合は、先に本番ビルドを作成してからPlaywrightを起動します。
+
+```powershell
+mise exec -- pnpm build
+mise exec -- pnpm exec playwright install chromium
+mise exec -- pnpm test:e2e
+```
+
+テストDBが不要になったら、コンテナとデータを削除できます。
+
+```powershell
+docker compose -f compose.test.yaml down --volumes
+```
 
 ```bash
 mise exec -- pnpm exec tsc --noEmit
 mise exec -- pnpm lint
+mise exec -- pnpm test
 mise exec -- pnpm build
+mise exec -- pnpm test:e2e
 mise exec -- pnpm db:check
 mise exec -- pnpm audit --audit-level high
 ```
