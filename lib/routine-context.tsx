@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { addDays, getDayOfWeek, getTodayDate, isDateInRange } from "@/lib/date";
+import { addDays, getDayOfWeek, getTodayDate, isDateInRange, toDateKey } from "@/lib/date";
 import type { DailyRoutines, Priority, Routine, RoutineLog, RoutineLogs, RoutineRevision, RoutineWithStatus } from "@/lib/types";
 
 const STORAGE_KEY = "daily-routine-manager:v1";
@@ -56,12 +56,18 @@ function normalizeRoutine(routine: Routine): Routine {
   const base = revisionFromRoutine(routine);
   if (routine.isActive) return { ...routine, revisions: [base] };
 
-  const yesterday = addDays(today, -1);
-  const historical = base.startDate <= yesterday
-    ? [{ ...base, id: `${base.id}-historical`, isActive: true, endDate: base.endDate && base.endDate < yesterday ? base.endDate : yesterday }]
+  const deactivatedOn = dateFromTimestamp(routine.updatedAt, today);
+  const historicalEnd = addDays(deactivatedOn, -1);
+  const historical = base.startDate <= historicalEnd
+    ? [{ ...base, id: `${base.id}-historical`, isActive: true, endDate: base.endDate && base.endDate < historicalEnd ? base.endDate : historicalEnd }]
     : [];
-  const inactive: RoutineRevision = { ...base, id: `${base.id}-inactive`, startDate: today, endDate: undefined, isActive: false };
+  const inactive: RoutineRevision = { ...base, id: `${base.id}-inactive`, startDate: deactivatedOn, endDate: undefined, isActive: false };
   return { ...routine, revisions: [...historical, inactive] };
+}
+
+function dateFromTimestamp(timestamp: string | undefined, fallback: string) {
+  const parsed = new Date(timestamp ?? "");
+  return Number.isNaN(parsed.getTime()) ? fallback : toDateKey(parsed);
 }
 
 function migrateStoredData(data: StoredData): StoredData {
@@ -104,10 +110,11 @@ function inputFromRevision(revision: RoutineRevision, overrides: Partial<Routine
 }
 
 function withNewRevision(routine: Routine, input: RoutineInput, effectiveDate: string, timestamp: string): Routine {
+  const today = getTodayDate();
   const endDate = input.endDate && input.endDate >= effectiveDate ? input.endDate : undefined;
   const nextInput = { ...input, startDate: effectiveDate, endDate };
   const previous = routine.revisions
-    .filter((revision) => revision.startDate < effectiveDate)
+    .filter((revision) => effectiveDate > today ? revision.startDate <= today : revision.startDate < effectiveDate)
     .map((revision) => {
       if (revision.endDate && revision.endDate < effectiveDate) return revision;
       return { ...revision, endDate: addDays(effectiveDate, -1) };
@@ -204,9 +211,14 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
 
   const updateRoutine = useCallback((routineId: string, input: RoutineInput) => {
     const today = getTodayDate();
-    const effectiveDate = input.startDate > today ? input.startDate : today;
     const timestamp = new Date().toISOString();
-    setRoutines((current) => current.map((routine) => routine.id === routineId ? withNewRevision(routine, input, effectiveDate, timestamp) : routine));
+    setRoutines((current) => current.map((routine) => {
+      if (routine.id !== routineId) return routine;
+      const deactivating = routine.isActive && !input.isActive;
+      const effectiveDate = deactivating ? addDays(today, 1) : input.startDate > today ? input.startDate : today;
+      const nextInput = deactivating ? { ...input, startDate: effectiveDate, endDate: undefined } : input;
+      return withNewRevision(routine, nextInput, effectiveDate, timestamp);
+    }));
   }, []);
 
   const deactivateRoutine = useCallback((routineId: string) => {
