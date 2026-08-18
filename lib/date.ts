@@ -1,4 +1,5 @@
 const pad = (value: number) => String(value).padStart(2, "0");
+const padYear = (value: number) => String(value).padStart(4, "0");
 
 export function getTodayDate() {
   const today = new Date();
@@ -6,12 +7,25 @@ export function getTodayDate() {
 }
 
 export function toDateKey(date: Date) {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  return `${padYear(date.getFullYear())}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+export function isValidDateKey(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  if (year < 1 || year > 9999 || month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  date.setUTCHours(0, 0, 0, 0);
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
 export function parseDateKey(dateKey: string) {
   const [year, month, day] = dateKey.split("-").map(Number);
-  return new Date(year, month - 1, day);
+  const date = new Date(0);
+  date.setFullYear(year, month - 1, day);
+  date.setHours(0, 0, 0, 0);
+  return date;
 }
 
 export function getDayOfWeek(dateKey: string) {
@@ -35,12 +49,13 @@ export function isFutureDate(dateKey: string) {
 }
 
 export function formatDateLong(dateKey: string) {
+  const parsedDate = parseDateKey(dateKey);
   return new Intl.DateTimeFormat("ja-JP", {
     year: "numeric",
     month: "long",
     day: "numeric",
     weekday: "short",
-  }).format(parseDateKey(dateKey));
+  }).format(parsedDate);
 }
 
 export function formatMonth(dateKey: string) {
@@ -63,7 +78,10 @@ export function monthStart(dateKey: string) {
 
 export function daysInMonth(dateKey: string) {
   const date = parseDateKey(dateKey);
-  return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  date.setDate(1);
+  date.setMonth(date.getMonth() + 1);
+  date.setDate(0);
+  return date.getDate();
 }
 
 export function isDateInRange(dateKey: string, startDate: string, endDate?: string) {

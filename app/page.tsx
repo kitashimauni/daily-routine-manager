@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/icon";
-import { addDays, formatDateLong, getTodayDate, isFutureDate } from "@/lib/date";
+import { addDays, formatDateLong, getTodayDate, isFutureDate, isValidDateKey } from "@/lib/date";
 import { useRoutines } from "@/lib/routine-context";
 import type { RoutineWithStatus } from "@/lib/types";
 
@@ -67,7 +67,10 @@ export default function TodayPage() {
 
   useEffect(() => {
     const queryDate = new URLSearchParams(window.location.search).get("date");
-    setDate(queryDate || getTodayDate());
+    const todayDate = getTodayDate();
+    const nextDate = queryDate && isValidDateKey(queryDate) ? queryDate : todayDate;
+    setDate(nextDate);
+    if (queryDate !== nextDate) window.history.replaceState(null, "", nextDate === todayDate ? "/" : `/?date=${nextDate}`);
   }, []);
 
   const daily = useMemo(() => (date ? getDailyRoutines(date) : { required: [], optional: [] }), [date, getDailyRoutines]);

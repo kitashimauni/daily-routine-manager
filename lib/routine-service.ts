@@ -3,7 +3,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDatabase } from "@/lib/db";
 import type { Database } from "@/lib/db";
 import { routineLogs, routineRevisions, routines } from "@/lib/db/schema";
-import { getDayOfWeek } from "@/lib/date";
+import { getDayOfWeek, isValidDateKey } from "@/lib/date";
 import { addDateDays, getServerTodayDate } from "@/lib/server-date";
 import type { Routine, RoutineInput, RoutineLog, RoutineLogs, RoutineRevision } from "@/lib/types";
 
@@ -15,10 +15,6 @@ export class RoutineServiceError extends Error {
 }
 
 type DatabaseWriter = Pick<Database, "insert">;
-
-function isDateKey(value: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value);
-}
 
 export function parseRoutineInput(value: unknown): RoutineInput {
   if (!value || typeof value !== "object") throw new RoutineServiceError("ルーティーンの入力が不正です。", 400);
@@ -34,7 +30,7 @@ export function parseRoutineInput(value: unknown): RoutineInput {
 
   if (!content || content.length > 200) throw new RoutineServiceError("内容は1〜200文字で入力してください。", 400);
   if (!priority || daysOfWeek.length === 0) throw new RoutineServiceError("優先度と実施曜日を指定してください。", 400);
-  if (!isDateKey(startDate) || (endDate && !isDateKey(endDate)) || (endDate && endDate < startDate)) throw new RoutineServiceError("期間の指定が不正です。", 400);
+  if (!isValidDateKey(startDate) || (endDate && !isValidDateKey(endDate)) || (endDate && endDate < startDate)) throw new RoutineServiceError("期間の指定が不正です。", 400);
   if (isActive === null) throw new RoutineServiceError("有効状態の指定が不正です。", 400);
   return { content, priority, daysOfWeek, startDate, endDate, isActive };
 }
@@ -216,7 +212,7 @@ export async function reactivateRoutineForUser(userId: string, routineId: string
 }
 
 export async function setRoutineLog(userId: string, routineId: string, date: string, completed: boolean) {
-  if (!isDateKey(date)) throw new RoutineServiceError("日付の指定が不正です。", 400);
+  if (!isValidDateKey(date)) throw new RoutineServiceError("日付の指定が不正です。", 400);
   const { routine } = await findRoutine(userId, routineId);
   const today = getServerTodayDate();
   const revision = revisionForDate(routine, date);
