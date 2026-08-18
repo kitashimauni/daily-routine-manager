@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { assertAuthRateLimit } from "@/lib/auth-rate-limit";
+import { assertAuthRateLimit, getClientIp } from "@/lib/auth-rate-limit";
 import { getCurrentUser, loginUser, logoutUser, registerUser, removeExpiredSessions } from "@/lib/auth";
 import { routineLogs, routineRevisions, routines, sessions, users } from "@/lib/db/schema";
 import { isValidDateKey } from "@/lib/date";
@@ -37,6 +37,19 @@ describe("date input validation", () => {
 
   it("uses the same strict validation for routine periods", () => {
     expect(() => parseRoutineInput({ content: "検証", priority: "required", daysOfWeek: [1], startDate: "2026-02-31", isActive: true })).toThrow("期間の指定が不正です。");
+  });
+
+  it("does not trust arbitrary forwarded headers outside the configured proxy", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("TRUST_PROXY_HEADERS", "false");
+    const forgedRequest = new Request("https://example.com", { headers: { "x-forwarded-for": "198.51.100.20", "x-real-ip": "198.51.100.21" } });
+    expect(getClientIp(forgedRequest)).toBe("unknown");
+
+    vi.stubEnv("VERCEL", "1");
+    const vercelRequest = new Request("https://example.com", { headers: { "x-forwarded-for": "198.51.100.20", "x-vercel-forwarded-for": "203.0.113.10" } });
+    expect(getClientIp(vercelRequest)).toBe("203.0.113.10");
+    vi.unstubAllEnvs();
   });
 });
 

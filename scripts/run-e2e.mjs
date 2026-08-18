@@ -15,6 +15,7 @@ const env = {
   DATABASE_URL: testDatabaseUrl,
   RESET_TEST_DATABASE: "true",
   TEST_DATABASE_URL: testDatabaseUrl,
+  TRUST_PROXY_HEADERS: "true",
 };
 
 function run(childCommand, childArgs, childEnv = env) {

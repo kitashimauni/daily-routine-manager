@@ -26,6 +26,12 @@ Windowsでmise本体が未導入の場合は、先に `scoop install mise` ま�
 
 通常のブラウザでは `http://localhost:3000` を開きます。
 
+## 本番リリース
+
+本番ホスティングはVercel、PostgreSQLはVercelのPreview / Productionごとに分離した管理PostgreSQL（Neon PostgreSQLを推奨）を使用します。`main`へのpushはProduction、Pull Requestや`main`以外のブランチはPreviewとして接続し、VercelのGit連携で同じcommitを再現可能にデプロイします。設定の詳細と初回セットアップ、migration、バックアップ、復旧、smoke testは[`docs/release-runbook.md`](docs/release-runbook.md)を参照してください。
+
+Vercelのビルドは `pnpm verify:deploy && pnpm db:migrate && pnpm build` の順で実行されます。環境検証またはmigrationが失敗した場合はデプロイを公開しません。実デプロイのcommit、環境、URLは `GET /api/health` で確認できます。
+
 初回アクセス時にアカウントを登録して利用します。新規登録直後はルーティーン0件の状態で始まり、Todayの「最初のルーティーンを追加」から登録できます。ルーティーンと完了ログはPostgreSQLにユーザー単位で保存されるため、ブラウザを変えても同じアカウントで参照できます。
 
 APIやDBの一時障害が起きた場合、既に表示しているルーティーンやログ、編集中の入力は保持したままエラーを表示します。画面上の「データを再読み込み」からバックグラウンドで再取得でき、保存操作はサーバーの成功応答を受けた場合だけ画面へ反映します。認証エラーは同じ入力を「再送信」でき、セッション切れ（401）の場合は古いデータを消去してログイン画面へ戻します。ログイン・登録のレート制限（429）や予期しない画面エラー（500）には、次に取る操作を表示します。
@@ -35,6 +41,8 @@ APIやDBの一時障害が起きた場合、既に表示しているルーティ
 - `DATABASE_URL` — PostgreSQL接続URL
 - `POSTGRES_PORT` — Composeで公開するPostgreSQLポート（既定値は `5432`）
 - `APP_TIME_ZONE` — 日付の境界に使うIANAタイムゾーン（既定値は `Asia/Tokyo`）
+- `DEPLOY_ENV` — デプロイ先の環境（ローカルは `local`、Vercel Previewは `preview`、Productionは `production`）
+- `RELEASE_VERSION` — `/api/health`で表示するリリースバージョン（未指定時はpackage.jsonのversion）
 
 既存のブラウザ `localStorage` データは自動移行しません。本番用の永続化基盤へ切り替えるため、必要なデータはDB移行後に再登録してください。
 
@@ -79,4 +87,7 @@ mise exec -- pnpm build
 mise exec -- pnpm test:e2e
 mise exec -- pnpm db:check
 mise exec -- pnpm audit --audit-level high
+mise exec -- pnpm verify:deploy
 ```
+
+Production / Previewの公開URLを確認する場合は、`SMOKE_BASE_URL=https://... mise exec -- pnpm smoke` を実行します。Productionでは `SMOKE_EXPECTED_COMMIT_SHA` にVercelのデプロイcommit SHAを指定すると、想定commitとの一致も確認できます。

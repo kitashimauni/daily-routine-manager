@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { lt, sql } from "drizzle-orm";
 import { getDatabase } from "@/lib/db";
 import { authRateLimits } from "@/lib/db/schema";
@@ -11,11 +12,26 @@ const LIMITS = {
 
 export type AuthAction = keyof typeof LIMITS;
 
+function normalizeIp(value: string | null) {
+  const candidate = value?.split(",")[0]?.trim();
+  return candidate && isIP(candidate) ? candidate : null;
+}
+
 export function getClientIp(request: Request) {
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  const realIp = request.headers.get("x-real-ip")?.trim();
-  const ip = forwarded || realIp || "unknown";
-  return ip.slice(0, 128);
+  const isVercelRequest = process.env.VERCEL === "1" || request.headers.has("x-vercel-id");
+  if (isVercelRequest) {
+    return normalizeIp(request.headers.get("x-vercel-forwarded-for"))
+      || normalizeIp(request.headers.get("x-real-ip"))
+      || "unknown";
+  }
+
+  const trustedTestProxy = process.env.ALLOW_TEST_DATABASE_RESET === "true" && process.env.TRUST_PROXY_HEADERS === "true";
+  const trustedDevelopmentProxy = process.env.NODE_ENV !== "production" && process.env.TRUST_PROXY_HEADERS === "true";
+  if (!trustedTestProxy && !trustedDevelopmentProxy) return "unknown";
+
+  return normalizeIp(request.headers.get("x-forwarded-for"))
+    || normalizeIp(request.headers.get("x-real-ip"))
+    || "unknown";
 }
 
 export async function assertAuthRateLimit(action: AuthAction, ip: string) {

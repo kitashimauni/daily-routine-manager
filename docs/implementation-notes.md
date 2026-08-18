@@ -19,3 +19,5 @@ Todayの`?date=YYYY-MM-DD`は形式とカレンダー上の存在を厳密に検
 初回のアカウント登録時はUserとSessionだけを作成し、Routine / RoutineRevision / RoutineLogは空状態で開始します。Todayでは「まだルーティーンがありません」と最初の追加導線を表示し、Routines画面では登録フォームをそのまま利用できます。既存ユーザーのデータは変更・削除しません。以前のブラウザ `localStorage` データは自動移行しません。ローカル開発は `compose.yaml` でPostgreSQLを起動し、`pnpm db:migrate` でスキーマを適用します。
 
 テストはVitestの実DB統合テストとPlaywrightの主要ユーザーフローで構成しています。`compose.test.yaml` の専用PostgreSQL（既定ポート5433、`routine_test`データベース）またはCIのサービスコンテナへマイグレーションを適用してから実行します。テストランナーは `TEST_DATABASE_URL` を `DATABASE_URL` に設定し直し、DB名・接続URL一致・明示的なリセット許可を共通ガードで確認するため、開発用・本番用の接続先を利用しません。固定時計を使い、Asia/Tokyoの日付境界に依存するテストを再現可能にしています。
+
+本番運用はVercel + 管理PostgreSQLを前提にし、`vercel.json` のビルドで `verify:deploy` → `db:migrate` → `build` の順に実行します。Production / Previewの `DATABASE_URL` と `DEPLOY_ENV` はVercel環境ごとに分離し、Vercelの `VERCEL_GIT_COMMIT_SHA` と `/api/health` で稼働commitを追跡します。Vercel上ではRate LimitのClient IPに専用の `x-vercel-forwarded-for` を使い、任意の `x-forwarded-for` は信頼しません。
