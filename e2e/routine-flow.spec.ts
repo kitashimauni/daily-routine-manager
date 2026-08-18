@@ -1,10 +1,22 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const weekdays = ["日", "月", "火", "水", "木", "金", "土"] as const;
+const E2E_TIME_ZONE = "Asia/Tokyo";
 
 function dateKey(date: Date) {
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  const parts = new Intl.DateTimeFormat("en-US", { day: "2-digit", month: "2-digit", timeZone: E2E_TIME_ZONE, year: "numeric" }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function addDays(date: string, amount: number) {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + amount);
+  return dateKey(value);
+}
+
+function dayOfWeek(date: string) {
+  return new Date(`${date}T00:00:00Z`).getUTCDay();
 }
 
 async function register(page: Page, email: string, password: string) {
@@ -57,9 +69,7 @@ test("registers, records, edits, disables, and restores an isolated routine flow
   const firstEmail = `e2e-${unique}@example.com`;
   const secondEmail = `e2e-other-${unique}@example.com`;
   const password = "correct-horse-battery-staple";
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayDate = dateKey(yesterday);
+  const yesterdayDate = addDays(dateKey(new Date()), -1);
 
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "ログイン" })).toBeVisible();
@@ -83,8 +93,10 @@ test("registers, records, edits, disables, and restores an isolated routine flow
   await page.getByRole("link", { name: "Routines" }).click();
   await page.getByLabel("内容").fill("E2Eで検証する");
   await page.getByLabel("開始日").fill(yesterdayDate);
-  await page.getByRole("button", { name: "日", exact: true }).click();
-  await page.getByRole("button", { name: "土", exact: true }).click();
+  for (const day of weekdays) {
+    const button = page.getByRole("button", { name: day, exact: true });
+    if (!(await button.evaluate((element) => element.classList.contains("selected")))) await button.click();
+  }
   await page.getByRole("button", { name: "追加する" }).click();
   await expect(page.getByText("E2Eで検証する")).toBeVisible();
 
@@ -299,7 +311,7 @@ test("does not show onboarding when a routine exists outside today's schedule", 
   const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const email = `e2e-empty-day-${unique}@example.com`;
   const password = "correct-horse-battery-staple";
-  const nextDay = (new Date().getDay() + 1) % 7;
+  const nextDay = (dayOfWeek(dateKey(new Date())) + 1) % 7;
 
   await page.setExtraHTTPHeaders({ "x-forwarded-for": `198.51.100.${Math.floor(Math.random() * 200) + 1}` });
   await register(page, email, password);
