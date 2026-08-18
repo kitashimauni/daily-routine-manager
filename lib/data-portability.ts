@@ -217,25 +217,27 @@ export function validateDataExport(value: unknown): DataExportPayload {
 
 export async function exportDataForUser(userId: string): Promise<DataExportPayload> {
   const db = getDatabase();
-  const routineRows = await db.select().from(routines).where(eq(routines.userId, userId)).orderBy(asc(routines.createdAt), asc(routines.id));
-  const routineIds = routineRows.map((routine) => routine.id);
-  const revisionRows = routineIds.length === 0
-    ? []
-    : await db.select().from(routineRevisions).where(inArray(routineRevisions.routineId, routineIds)).orderBy(asc(routineRevisions.startDate), asc(routineRevisions.createdAt), asc(routineRevisions.id));
-  const logRows = routineIds.length === 0
-    ? []
-    : await db.select().from(routineLogs).where(and(eq(routineLogs.userId, userId), inArray(routineLogs.routineId, routineIds))).orderBy(asc(routineLogs.date), asc(routineLogs.id));
+  return db.transaction(async (tx) => {
+    const routineRows = await tx.select().from(routines).where(eq(routines.userId, userId)).orderBy(asc(routines.createdAt), asc(routines.id));
+    const routineIds = routineRows.map((routine) => routine.id);
+    const revisionRows = routineIds.length === 0
+      ? []
+      : await tx.select().from(routineRevisions).where(inArray(routineRevisions.routineId, routineIds)).orderBy(asc(routineRevisions.startDate), asc(routineRevisions.createdAt), asc(routineRevisions.id));
+    const logRows = routineIds.length === 0
+      ? []
+      : await tx.select().from(routineLogs).where(and(eq(routineLogs.userId, userId), inArray(routineLogs.routineId, routineIds))).orderBy(asc(routineLogs.date), asc(routineLogs.id));
 
-  return {
-    format: DATA_EXPORT_FORMAT,
-    schemaVersion: DATA_EXPORT_SCHEMA_VERSION,
-    exportedAt: new Date().toISOString(),
-    data: {
-      routines: routineRows.map(({ id, content, priority, daysOfWeek, startDate, endDate, isActive, createdAt, updatedAt }) => ({ id, content, priority, daysOfWeek, startDate, endDate, isActive, createdAt, updatedAt })),
-      revisions: revisionRows.map(({ id, routineId, content, priority, daysOfWeek, startDate, endDate, isActive, createdAt }) => ({ id, routineId, content, priority, daysOfWeek, startDate, endDate, isActive, createdAt })),
-      logs: logRows.map(({ id, routineId, date, createdAt, updatedAt }) => ({ id, routineId, date, createdAt, updatedAt })),
-    },
-  };
+    return {
+      format: DATA_EXPORT_FORMAT,
+      schemaVersion: DATA_EXPORT_SCHEMA_VERSION,
+      exportedAt: new Date().toISOString(),
+      data: {
+        routines: routineRows.map(({ id, content, priority, daysOfWeek, startDate, endDate, isActive, createdAt, updatedAt }) => ({ id, content, priority, daysOfWeek, startDate, endDate, isActive, createdAt, updatedAt })),
+        revisions: revisionRows.map(({ id, routineId, content, priority, daysOfWeek, startDate, endDate, isActive, createdAt }) => ({ id, routineId, content, priority, daysOfWeek, startDate, endDate, isActive, createdAt })),
+        logs: logRows.map(({ id, routineId, date, createdAt, updatedAt }) => ({ id, routineId, date, createdAt, updatedAt })),
+      },
+    };
+  }, { isolationLevel: "repeatable read", accessMode: "read only" });
 }
 
 export async function importDataForUser(userId: string, value: unknown) {

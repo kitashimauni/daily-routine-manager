@@ -157,6 +157,52 @@ test("clears stale routine data after an authenticated API returns 401", async (
   await expect(page.locator(".auth-error")).toContainText("セッションの有効期限が切れました");
 });
 
+test("clears stale routine data when Settings export returns 401", async ({ page }) => {
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-settings-export-session-${unique}@example.com`;
+  const password = "correct-horse-battery-staple";
+
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": `198.51.100.${Math.floor(Math.random() * 200) + 1}` });
+  await register(page, email, password);
+  await createRoutine(page, "Exportの401から回復する");
+  await page.getByRole("link", { name: "Settings" }).click();
+  await page.route("**/api/data/export", async (route) => {
+    await route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "ログインが必要です。" }) });
+  });
+  await page.getByRole("button", { name: "JSONをダウンロード" }).click();
+  await expect(page.getByRole("heading", { name: "ログイン" })).toBeVisible();
+  await expect(page.getByText("Exportの401から回復する")).toHaveCount(0);
+  await expect(page.locator(".auth-error")).toContainText("セッションの有効期限が切れました");
+});
+
+test("clears stale routine data when Settings import returns 401", async ({ page }) => {
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-settings-import-session-${unique}@example.com`;
+  const password = "correct-horse-battery-staple";
+
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": `198.51.100.${Math.floor(Math.random() * 200) + 1}` });
+  await register(page, email, password);
+  await createRoutine(page, "Importの401から回復する");
+  await page.getByRole("link", { name: "Settings" }).click();
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "JSONをダウンロード" }).click();
+  const download = await downloadPromise;
+  const downloadPath = await download.path();
+  expect(downloadPath).toBeTruthy();
+  await page.locator("#data-import-file").setInputFiles(downloadPath!);
+  await expect(page.getByText(/Routine 1件 \/ 履歴 1件 \/ 完了ログ 0件/)).toBeVisible();
+
+  await page.route("**/api/data/import", async (route) => {
+    await route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "ログインが必要です。" }) });
+  });
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "この内容で置き換える" }).click();
+  await expect(page.getByRole("heading", { name: "ログイン" })).toBeVisible();
+  await expect(page.getByText("Importの401から回復する")).toHaveCount(0);
+  await expect(page.locator(".auth-error")).toContainText("セッションの有効期限が切れました");
+});
+
 test("keeps the edited form mounted while retrying a failed save", async ({ page }) => {
   const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const email = `e2e-retry-${unique}@example.com`;

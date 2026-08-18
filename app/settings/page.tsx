@@ -17,7 +17,7 @@ function responseError(body: unknown) {
 }
 
 export default function SettingsPage() {
-  const { retry } = useRoutines();
+  const { authenticatedFetch, retry } = useRoutines();
   const inputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
@@ -59,7 +59,7 @@ export default function SettingsPage() {
     setError(null);
     setStatus(null);
     try {
-      const response = await fetch("/api/data/export", { credentials: "same-origin" });
+      const response = await authenticatedFetch("/api/data/export");
       if (!response.ok) throw new Error(responseError(await response.json().catch(() => null)));
       const blob = await response.blob();
       const disposition = response.headers.get("content-disposition");
@@ -85,7 +85,7 @@ export default function SettingsPage() {
     setError(null);
     setStatus(null);
     try {
-      const response = await fetch("/api/data/import", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: await selectedFile.text() });
+      const response = await authenticatedFetch("/api/data/import", { method: "POST", body: await selectedFile.text() });
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(responseError(body));
       await retry();

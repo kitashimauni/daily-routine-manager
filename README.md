@@ -54,7 +54,7 @@ APIやDBの一時障害が起きた場合、既に表示しているルーティ
 - `RELEASE_BRANCH` — 稼働ブランチ（Productionは `main` 必須）
 - `TRUST_PROXY_HEADERS` — 管理下のreverse proxyがclient IPを正規化した場合だけ `true`
 
-Settingsのデータ管理では、ログイン中ユーザーのRoutine / Revision / Logだけをschema version付きJSONとして書き出せます。読み込みは現在のユーザーの同じ3種類のデータを置き換える方式で、別アカウントへ読み込む場合も内部IDを再発行します。password hash、Session、他ユーザーのデータは対象外です。不正なファイルや未知のschema versionは反映前に拒否し、読み込みはtransactionで実行します。
+Settingsのデータ管理では、ログイン中ユーザーのRoutine / Revision / Logだけをschema version付きJSONとして書き出せます。書き出しはread-only `REPEATABLE READ` transaction内で同一snapshotを取得します。読み込みは現在のユーザーの同じ3種類のデータを置き換える方式で、別アカウントへ読み込む場合も内部IDを再発行します。password hash、Session、他ユーザーのデータは対象外です。不正なファイルや未知のschema versionは反映前に拒否し、読み込みはtransactionで実行します。認証付きのデータ操作でセッションが期限切れになった場合は、共通の認証経路でログイン画面へ復帰します。
 
 既存のブラウザ `localStorage` データは自動移行しません。本番用の永続化基盤へ切り替えるため、必要なデータはDB移行後に再登録してください。
 
