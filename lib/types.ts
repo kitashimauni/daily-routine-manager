@@ -1,5 +1,17 @@
 export type Priority = "required" | "optional";
 
+export interface RoutineRevision {
+  id: string;
+  routineId: string;
+  content: string;
+  priority: Priority;
+  daysOfWeek: number[];
+  startDate: string;
+  endDate?: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
 export interface Routine {
   id: string;
   content: string;
@@ -8,6 +20,7 @@ export interface Routine {
   startDate: string;
   endDate?: string;
   isActive: boolean;
+  revisions: RoutineRevision[];
   createdAt: string;
   updatedAt: string;
 }
