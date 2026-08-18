@@ -211,11 +211,12 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
 
   const deactivateRoutine = useCallback((routineId: string) => {
     const today = getTodayDate();
+    const effectiveDate = addDays(today, 1);
     const timestamp = new Date().toISOString();
     setRoutines((current) => current.map((routine) => {
-      if (!routine.isActive) return routine;
+      if (routine.id !== routineId || !routine.isActive) return routine;
       const currentRevision = revisionForDate(routine, today) ?? revisionFromRoutine(routine);
-      return withNewRevision(routine, inputFromRevision(currentRevision, { isActive: false, startDate: today, endDate: undefined }), today, timestamp);
+      return withNewRevision(routine, inputFromRevision(currentRevision, { isActive: false, startDate: effectiveDate, endDate: undefined }), effectiveDate, timestamp);
     }));
   }, []);
 
@@ -223,7 +224,7 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
     const today = getTodayDate();
     const timestamp = new Date().toISOString();
     setRoutines((current) => current.map((routine) => {
-      if (routine.isActive) return routine;
+      if (routine.id !== routineId || routine.isActive) return routine;
       const currentRevision = revisionForDate(routine, today) ?? [...routine.revisions].sort((left, right) => right.startDate.localeCompare(left.startDate))[0] ?? revisionFromRoutine(routine);
       return withNewRevision(routine, inputFromRevision(currentRevision, { isActive: true, startDate: today, endDate: undefined }), today, timestamp);
     }));
