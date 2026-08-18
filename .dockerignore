@@ -1,0 +1,10 @@
+node_modules/
+.next/
+.pnpm-store/
+.git/
+test-results/
+*.log
+*.tsbuildinfo
+.env*
+Dockerfile*
+compose*.yaml

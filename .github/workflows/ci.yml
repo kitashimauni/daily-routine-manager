@@ -17,7 +17,7 @@ jobs:
   validate:
     name: Validate
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       APP_TIME_ZONE: Asia/Tokyo
       TEST_DATABASE_URL: postgresql://routine_test:test_password@localhost:5432/routine_test
@@ -25,7 +25,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:18-alpine
+        image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
         env:
           POSTGRES_DB: routine_test
           POSTGRES_USER: routine_test
@@ -59,6 +59,22 @@ jobs:
 
       - name: Build
         run: mise exec -- pnpm build
+
+      - name: Validate production Compose
+        run: docker compose --profile ops --env-file .env.production.example -f compose.prod.yaml config
+
+      - name: Build production app image
+        run: >-
+          docker build --target runner --tag daily-routine-manager:ci
+          --build-arg RELEASE_VERSION=0.1.0
+          --build-arg RELEASE_COMMIT_SHA=${{ github.sha }}
+          --build-arg RELEASE_BRANCH=${{ github.ref_name }} .
+
+      - name: Build production migration image
+        run: docker build --target migrate --tag daily-routine-manager:migrate-ci .
+
+      - name: Build production backup image
+        run: docker build --target backup --tag daily-routine-manager:backup-ci .
 
       - name: Install Playwright browser
         run: mise exec -- pnpm exec playwright install --with-deps chromium

@@ -15,6 +15,7 @@ const env = {
   DATABASE_URL: testDatabaseUrl,
   RESET_TEST_DATABASE: "true",
   TEST_DATABASE_URL: testDatabaseUrl,
+  TRUST_PROXY_HEADERS: "true",
 };
 
 function run(childCommand, childArgs, childEnv = env) {
@@ -54,7 +55,7 @@ async function waitForServer(url) {
 let server;
 try {
   const migration = await run(process.execPath, ["scripts/test-database.mjs"]);
-  if (migration.code !== 0) process.exitCode = migration.code;
+    if (migration.code !== 0) process.exitCode = migration.code;
   else {
     if (!process.env.E2E_BASE_URL) {
       server = spawn(process.execPath, [nextCli, "start"], {

@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -10,6 +13,10 @@
     "lint": "eslint .",
     "test": "node scripts/run-test.mjs",
     "test:e2e": "node scripts/run-e2e.mjs",
+    "smoke": "node scripts/smoke-test.mjs",
+    "verify:deploy": "node scripts/verify-deploy-env.mjs",
+    "release:production": "node scripts/deploy-production.mjs",
+    "db:migrate:deploy": "node scripts/migrate-production.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:check": "drizzle-kit check"

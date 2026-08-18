@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { lt, sql } from "drizzle-orm";
 import { getDatabase } from "@/lib/db";
 import { authRateLimits } from "@/lib/db/schema";
@@ -11,11 +12,24 @@ const LIMITS = {
 
 export type AuthAction = keyof typeof LIMITS;
 
+function normalizeIp(value: string | null) {
+  const candidate = value?.split(",")[0]?.trim();
+  return candidate && isIP(candidate) ? candidate : null;
+}
+
 export function getClientIp(request: Request) {
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  const realIp = request.headers.get("x-real-ip")?.trim();
-  const ip = forwarded || realIp || "unknown";
-  return ip.slice(0, 128);
+  const isVercelRequest = process.env.VERCEL === "1";
+  if (isVercelRequest) {
+    return normalizeIp(request.headers.get("x-vercel-forwarded-for"))
+      || normalizeIp(request.headers.get("x-real-ip"))
+      || "unknown";
+  }
+
+  if (process.env.TRUST_PROXY_HEADERS !== "true") return "unknown";
+
+  return normalizeIp(request.headers.get("x-forwarded-for"))
+    || normalizeIp(request.headers.get("x-real-ip"))
+    || "unknown";
 }
 
 export async function assertAuthRateLimit(action: AuthAction, ip: string) {
