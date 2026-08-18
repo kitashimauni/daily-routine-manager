@@ -9,7 +9,7 @@
 - Preview: Preview専用hostまたはCompose project / DB / secret。Productionの接続先を設定しない
 - DB schema: `drizzle/` のSQL migration
 
-`compose.prod.yaml`は`app`、`postgres`、one-shotの`migrate`を分離する。`app`はDocker network上の`:3000`だけを`expose`し、PostgreSQLもhostへ`ports`公開しない。reverse proxyは`routine-frontend` networkへ参加し、`app:3000`をupstreamにする。appとmigrateはDockerfileで`nextjs`非rootユーザー、backupはPostgreSQL公式imageの非rootユーザーで実行する。
+`compose.prod.yaml`は`app`、`postgres`、one-shotの`migrate`を分離する。`app`はDocker network上の`:3000`だけを`expose`し、PostgreSQLもhostへ`ports`公開しない。reverse proxyは`routine-frontend` networkへ参加し、`app:3000`をupstreamにする。appとmigrateはDockerfileで`nextjs`非rootユーザー、backupは固定digestのPostgreSQL公式image内`postgres`非rootユーザーで実行する。backupのbind mountは、そのimage内の`postgres` UID/GIDが書き込める所有者・permissionに設定する。
 
 Production URL: `<reverse-proxyで設定した本番HTTPS URL>`
 Backup storage: `<host外または別ストレージのバックアップ保存先>`
@@ -25,7 +25,7 @@ cp .env.production.example .env.production
 chmod 600 .env.production
 ```
 
-3. `.env.production`の`POSTGRES_PASSWORD`、`DATABASE_URL`、`RELEASE_COMMIT_SHA`、`BACKUP_DIR`を実値へ置き換える。`DATABASE_URL`のhostはCompose内の`postgres`、`RELEASE_BRANCH`は`main`にする。
+3. `.env.production`の`POSTGRES_PASSWORD`、`DATABASE_URL`、`BACKUP_DIR`を実値へ置き換える。`DATABASE_URL`のhostはCompose内の`postgres`、`RELEASE_BRANCH`は`main`にする。`RELEASE_COMMIT_SHA`はexampleのplaceholderのままでもよく、deploy scriptが実際のsource commit SHAで上書きする。SHAを手入力してdeployしない。
 4. 本番用のfrontend networkを一度だけ作成する。
 
 ```bash
@@ -35,6 +35,15 @@ docker network create routine-frontend
 5. reverse proxyを`routine-frontend` networkへ接続し、HTTPSのupstreamを`http://app:3000`にする。外部からappへ直接到達できるhost portやFirewall ruleを作らない。
 6. proxyは外部から受け取った`X-Forwarded-For` / `X-Real-IP`を破棄・上書きし、proxyが観測したclient IPを1つの値としてappへ渡す。appとproxyはこの管理下networkだけで接続する。
 7. `.env.production`はGitへcommitせず、バックアップ先のディレクトリは本番DB volumeとは別のhost外ストレージへ同期する。
+
+backup用bind mountの所有者を、固定digestのPostgreSQL image内`postgres`ユーザーへ合わせる。以下はLinux hostでの例である。
+
+```bash
+POSTGRES_IMAGE='postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2'
+BACKUP_UID="$(docker run --rm --entrypoint id "$POSTGRES_IMAGE" -u postgres)"
+BACKUP_GID="$(docker run --rm --entrypoint id "$POSTGRES_IMAGE" -g postgres)"
+sudo install -d -o "$BACKUP_UID" -g "$BACKUP_GID" -m 700 /srv/daily-routine-manager/backups
+```
 
 ### DNS / HTTPS
 
@@ -72,17 +81,11 @@ Docker image buildはDBへ接続せず、migrationは別のone-shot serviceで�
 git fetch origin main
 git checkout main
 git pull --ff-only origin main
-export RELEASE_COMMIT_SHA="$(git rev-parse HEAD)"
-export RELEASE_BRANCH="main"
-
-docker compose --env-file .env.production -f compose.prod.yaml config
-docker compose --env-file .env.production -f compose.prod.yaml build
-docker compose --env-file .env.production -f compose.prod.yaml up -d postgres
-docker compose --env-file .env.production -f compose.prod.yaml run --rm migrate
-docker compose --env-file .env.production -f compose.prod.yaml up -d --no-deps app
+test -z "$(git status --porcelain)"
+mise exec -- pnpm release:production -- --env-file .env.production
 ```
 
-実際には`RELEASE_COMMIT_SHA`と`RELEASE_BRANCH`を`.env.production`へ反映してからComposeを実行する。`config`で`ports`がapp / postgresに存在しないこと、`DATABASE_URL`がProduction接続先であることを確認する。
+`release:production`がcleanな`main` worktreeを検証し、`git rev-parse HEAD`でrelease SHAを導出してから、同じworktreeをComposeのbuild contextに指定する。Composeのapp imageは`daily-routine-manager:<commit-sha>`、migrate imageは`daily-routine-manager-migrate:<commit-sha>`として作成される。`config`の出力で`ports`がapp / postgresに存在しないこと、`DATABASE_URL`がProduction接続先であることを確認する。
 
 起動順序は次のとおりである。
 
@@ -152,7 +155,15 @@ docker run --rm --network routine-backend \
 
 ## Rollback
 
-- image / appだけの不具合: 既知のcommit SHAを`RELEASE_COMMIT_SHA`へ設定し、同じCompose手順でimageをbuildしてappを再起動する。
+- image / appだけの不具合: 現在のworktreeを変更せず、既知のmain上のcommitまたはtagから一時detached worktreeを作成してbuild・再起動する。スクリプトが対象commitの祖先関係、cleanな現在worktree、source SHAとDocker image / health metadataの一致を検証する。
+
+```bash
+git fetch origin main
+test -z "$(git status --porcelain)"
+mise exec -- pnpm release:production -- --rollback <known-main-commit-or-tag> --env-file .env.production
+```
+
+`RELEASE_COMMIT_SHA`だけを過去値へ変更して現在のsourceをbuildする操作は禁止する。rollback imageは`daily-routine-manager:<target-commit-sha>`として残るため、healthの`release.commitSha`、Composeのimage tag、対象source commitを突合する。
 - migration失敗: `migrate`のログと`drizzle` migration履歴を確認し、原因修正後に同じone-shot migrationを再実行する。失敗中はappを公開しない。
 - 適用済みschemaの不整合: down migrationを自動実行せず、互換性のあるforward-fixまたはバックアップrestoreを選択する。
 

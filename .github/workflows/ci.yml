@@ -64,7 +64,11 @@ jobs:
         run: docker compose --profile ops --env-file .env.production.example -f compose.prod.yaml config
 
       - name: Build production app image
-        run: docker build --target runner --tag daily-routine-manager:ci .
+        run: >-
+          docker build --target runner --tag daily-routine-manager:ci
+          --build-arg RELEASE_VERSION=0.1.0
+          --build-arg RELEASE_COMMIT_SHA=${{ github.sha }}
+          --build-arg RELEASE_BRANCH=${{ github.ref_name }} .
 
       - name: Build production migration image
         run: docker build --target migrate --tag daily-routine-manager:migrate-ci .

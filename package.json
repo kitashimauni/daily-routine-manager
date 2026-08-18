@@ -15,6 +15,7 @@
     "test:e2e": "node scripts/run-e2e.mjs",
     "smoke": "node scripts/smoke-test.mjs",
     "verify:deploy": "node scripts/verify-deploy-env.mjs",
+    "release:production": "node scripts/deploy-production.mjs",
     "db:migrate:deploy": "node scripts/migrate-production.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",

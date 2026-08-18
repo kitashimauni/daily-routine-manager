@@ -19,6 +19,7 @@ services:
       retries: 12
 
   migrate:
+    image: daily-routine-manager-migrate:${RELEASE_COMMIT_SHA:?RELEASE_COMMIT_SHA is required}
     build:
       context: .
       target: migrate
@@ -39,6 +40,7 @@ services:
     restart: "no"
 
   app:
+    image: daily-routine-manager:${RELEASE_COMMIT_SHA:?RELEASE_COMMIT_SHA is required}
     build:
       context: .
       target: runner
