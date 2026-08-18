@@ -68,7 +68,7 @@ function EmptyRoutineState() {
 }
 
 export default function TodayPage() {
-  const { hydrated, getDailyRoutines, toggleRoutine } = useRoutines();
+  const { hydrated, routines, getDailyRoutines, toggleRoutine } = useRoutines();
   const [date, setDate] = useState("");
   const [pendingRoutineId, setPendingRoutineId] = useState<string | null>(null);
 
@@ -145,7 +145,7 @@ export default function TodayPage() {
         </div>
       </section>
 
-      {today && total === 0 ? <EmptyRoutineState /> : <div className="routine-columns">
+      {today && routines.length === 0 ? <EmptyRoutineState /> : <div className="routine-columns">
         <RoutineGroup title="必ずやる" items={daily.required} readOnly={readOnly} pendingRoutineId={pendingRoutineId} onToggle={(id) => { void handleToggle(id); }} />
         <RoutineGroup title="できればやる" items={daily.optional} optional readOnly={readOnly} pendingRoutineId={pendingRoutineId} onToggle={(id) => { void handleToggle(id); }} />
       </div>}

@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+const weekdays = ["日", "月", "火", "水", "木", "金", "土"] as const;
+
 function dateKey(date: Date) {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -19,6 +21,18 @@ async function createRoutine(page: Page, content: string) {
   await page.getByLabel("内容").fill(content);
   await page.getByRole("button", { name: "日", exact: true }).click();
   await page.getByRole("button", { name: "土", exact: true }).click();
+  await page.getByRole("button", { name: "追加する" }).click();
+  await expect(page.getByText(content)).toBeVisible();
+}
+
+async function createRoutineOnDay(page: Page, content: string, dayIndex: number) {
+  await page.getByRole("link", { name: "Routines" }).click();
+  await page.getByLabel("内容").fill(content);
+  for (const [index, day] of weekdays.entries()) {
+    const button = page.getByRole("button", { name: day, exact: true });
+    const isSelected = await button.evaluate((element) => element.classList.contains("selected"));
+    if (isSelected !== (index === dayIndex)) await button.click();
+  }
   await page.getByRole("button", { name: "追加する" }).click();
   await expect(page.getByText(content)).toBeVisible();
 }
@@ -218,4 +232,22 @@ test("keeps a successful session when the initial routine load temporarily fails
   await expect(page.getByRole("button", { name: "データを再読み込み" })).toBeVisible();
   await page.getByRole("button", { name: "データを再読み込み" }).click();
   await expect(page.getByRole("heading", { name: "まだルーティーンがありません" })).toBeVisible();
+});
+
+test("does not show onboarding when a routine exists outside today's schedule", async ({ page }) => {
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-empty-day-${unique}@example.com`;
+  const password = "correct-horse-battery-staple";
+  const nextDay = (new Date().getDay() + 1) % 7;
+
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": `198.51.100.${Math.floor(Math.random() * 200) + 1}` });
+  await register(page, email, password);
+  await createRoutineOnDay(page, "曜日外のルーティーン", nextDay);
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "まだルーティーンがありません" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "必ずやる", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "できればやる", exact: true })).toBeVisible();
+  await expect(page.getByText("曜日外のルーティーン")).toHaveCount(0);
+  await expect(page.getByText("この日の予定はありません。")).toHaveCount(2);
 });
