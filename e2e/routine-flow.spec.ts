@@ -61,6 +61,7 @@ test("registers, records, edits, disables, and restores an isolated routine flow
   await expect(page.getByRole("button", { name: "E2Eで検証するを未完了に戻す" })).toBeVisible();
   await expect(page.getByText("E2Eで編集後")).toHaveCount(0);
   await page.getByRole("link", { name: "Stats" }).click();
+  await page.getByRole("button", { name: "直近30日" }).click();
   const previousStatsRow = page.locator(".stats-row").filter({ hasText: "E2Eで検証する" });
   const currentStatsRow = page.locator(".stats-row").filter({ hasText: "E2Eで編集後" });
   await expect(previousStatsRow).toContainText("1 / 1回");
