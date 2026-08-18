@@ -105,7 +105,6 @@ export async function registerUser(email: string, password: string): Promise<Aut
     if (error && typeof error === "object" && "code" in error && error.code === "23505") throw new AuthError("このメールアドレスはすでに登録されています。", 409);
     throw error;
   }
-  await createSession(userId);
   return { id: userId, email: normalizedEmail };
 }
 
