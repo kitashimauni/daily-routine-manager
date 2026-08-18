@@ -118,3 +118,62 @@ test("clears stale routine data after an authenticated API returns 401", async (
   await expect(page.getByText("体を動かす")).toHaveCount(0);
   await expect(page.locator(".auth-error")).toContainText("セッションの有効期限が切れました");
 });
+
+test("keeps the edited form mounted while retrying a failed save", async ({ page }) => {
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-retry-${unique}@example.com`;
+  const password = "correct-horse-battery-staple";
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "初めて利用する方はこちら" }).click();
+  await page.getByLabel("メールアドレス").fill(email);
+  await page.getByLabel("パスワード").fill(password);
+  await page.getByRole("button", { name: "登録する" }).click();
+  await expect(page.getByText(email)).toBeVisible();
+
+  await page.getByRole("link", { name: "Routines" }).click();
+  const routineRow = page.locator(".managed-row").filter({ hasText: "体を動かす" });
+  await routineRow.getByRole("button", { name: /編集/ }).click();
+  const contentInput = page.getByRole("dialog").getByRole("textbox").first();
+  await contentInput.fill("再試行しても保持する入力");
+
+  await page.route("**/api/routines/*", async (route) => {
+    if (route.request().method() === "PATCH") {
+      await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "保存に失敗しました。" }) });
+      return;
+    }
+    await route.continue();
+  });
+  await page.getByRole("dialog").getByRole("button", { name: "変更を保存" }).click();
+  await expect(page.locator(".app-error")).toContainText("保存に失敗しました。");
+  await expect(contentInput).toHaveValue("再試行しても保持する入力");
+
+  await page.getByRole("button", { name: "データを再読み込み" }).click();
+  await expect(contentInput).toHaveValue("再試行しても保持する入力");
+});
+
+test("keeps authentication inputs for a rate-limit retry", async ({ page }) => {
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-rate-limit-${unique}@example.com`;
+  const password = "correct-horse-battery-staple";
+  let shouldRateLimit = true;
+
+  await page.route("**/api/auth/register", async (route) => {
+    if (shouldRateLimit) {
+      shouldRateLimit = false;
+      await route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: "登録試行が多すぎます。しばらく待ってから再試行してください。" }) });
+      return;
+    }
+    await route.continue();
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "初めて利用する方はこちら" }).click();
+  await page.getByLabel("メールアドレス").fill(email);
+  await page.getByLabel("パスワード").fill(password);
+  await page.getByRole("button", { name: "登録する" }).click();
+  await expect(page.locator(".auth-error")).toContainText("登録試行が多すぎます");
+  await expect(page.getByLabel("メールアドレス")).toHaveValue(email);
+  await expect(page.getByLabel("パスワード")).toHaveValue(password);
+  await page.getByRole("button", { name: "再送信" }).click();
+  await expect(page.getByText(email)).toBeVisible();
+});

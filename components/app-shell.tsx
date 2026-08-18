@@ -56,7 +56,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <span className="brand-subtitle">DAILY PRACTICE</span>
         </header>
         <main>
-          {error && <div className="app-error" role="alert"><span>{error}</span><button type="button" onClick={() => void retry()}>再試行</button></div>}
+          {error && <div className="app-error" role="alert"><span>{error}</span><button type="button" onClick={() => void retry()}>データを再読み込み</button></div>}
           {children}
         </main>
         <nav className="mobile-nav" aria-label="メインナビゲーション">
