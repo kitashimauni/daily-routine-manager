@@ -18,16 +18,14 @@ function normalizeIp(value: string | null) {
 }
 
 export function getClientIp(request: Request) {
-  const isVercelRequest = process.env.VERCEL === "1" || request.headers.has("x-vercel-id");
+  const isVercelRequest = process.env.VERCEL === "1";
   if (isVercelRequest) {
     return normalizeIp(request.headers.get("x-vercel-forwarded-for"))
       || normalizeIp(request.headers.get("x-real-ip"))
       || "unknown";
   }
 
-  const trustedTestProxy = process.env.ALLOW_TEST_DATABASE_RESET === "true" && process.env.TRUST_PROXY_HEADERS === "true";
-  const trustedDevelopmentProxy = process.env.NODE_ENV !== "production" && process.env.TRUST_PROXY_HEADERS === "true";
-  if (!trustedTestProxy && !trustedDevelopmentProxy) return "unknown";
+  if (process.env.TRUST_PROXY_HEADERS !== "true") return "unknown";
 
   return normalizeIp(request.headers.get("x-forwarded-for"))
     || normalizeIp(request.headers.get("x-real-ip"))

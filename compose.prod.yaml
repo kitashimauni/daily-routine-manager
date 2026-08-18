@@ -1,0 +1,107 @@
+services:
+  postgres:
+    image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    expose:
+      - "5432"
+    volumes:
+      - routine-production-postgres:/var/lib/postgresql
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  migrate:
+    build:
+      context: .
+      target: migrate
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      DEPLOY_ENV: ${DEPLOY_ENV:?DEPLOY_ENV is required}
+      APP_TIME_ZONE: ${APP_TIME_ZONE:-Asia/Tokyo}
+      RELEASE_VERSION: ${RELEASE_VERSION:-0.1.0}
+      RELEASE_COMMIT_SHA: ${RELEASE_COMMIT_SHA:?RELEASE_COMMIT_SHA is required}
+      RELEASE_BRANCH: ${RELEASE_BRANCH:?RELEASE_BRANCH is required}
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:?TRUST_PROXY_HEADERS is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      target: runner
+      args:
+        RELEASE_VERSION: ${RELEASE_VERSION:-0.1.0}
+        RELEASE_COMMIT_SHA: ${RELEASE_COMMIT_SHA:?RELEASE_COMMIT_SHA is required}
+        RELEASE_BRANCH: ${RELEASE_BRANCH:?RELEASE_BRANCH is required}
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      DEPLOY_ENV: ${DEPLOY_ENV:?DEPLOY_ENV is required}
+      APP_TIME_ZONE: ${APP_TIME_ZONE:-Asia/Tokyo}
+      RELEASE_VERSION: ${RELEASE_VERSION:-0.1.0}
+      RELEASE_COMMIT_SHA: ${RELEASE_COMMIT_SHA:?RELEASE_COMMIT_SHA is required}
+      RELEASE_BRANCH: ${RELEASE_BRANCH:?RELEASE_BRANCH is required}
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:?TRUST_PROXY_HEADERS is required}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    expose:
+      - "3000"
+    networks:
+      - frontend
+      - backend
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  backup:
+    profiles:
+      - ops
+    build:
+      context: .
+      target: backup
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      BACKUP_DIR: /backups
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+    volumes:
+      - ${BACKUP_DIR:?BACKUP_DIR is required}:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: "no"
+
+networks:
+  frontend:
+    name: ${FRONTEND_NETWORK_NAME:-routine-frontend}
+    external: true
+  backend:
+    name: ${BACKEND_NETWORK_NAME:-routine-backend}
+    internal: true
+
+volumes:
+  routine-production-postgres:

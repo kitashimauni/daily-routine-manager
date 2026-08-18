@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import http from "node:http";
@@ -6,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const testDatabaseUrl = process.env.TEST_DATABASE_URL ?? "postgresql://routine_test:test_password@localhost:5433/routine_test";
 const nextCli = path.join(projectRoot, "node_modules", "next", "dist", "bin", "next");
+const standaloneServer = path.join(projectRoot, ".next", "standalone", "server.js");
 const playwrightCli = path.join(projectRoot, "node_modules", "@playwright", "test", "cli.js");
 const baseUrl = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 const env = {
@@ -28,6 +30,13 @@ function run(childCommand, childArgs, childEnv = env) {
 
 function wait(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function prepareStandaloneServer() {
+  const helperSource = path.join(projectRoot, "node_modules", ".pnpm", "@swc+helpers@0.5.23", "node_modules", "@swc", "helpers", "esm");
+  const helperTarget = path.join(projectRoot, ".next", "standalone", "node_modules", ".pnpm", "@swc+helpers@0.5.23", "node_modules", "@swc", "helpers", "esm");
+  await fs.mkdir(path.dirname(helperTarget), { recursive: true });
+  await fs.cp(helperSource, helperTarget, { recursive: true, force: true });
 }
 
 async function waitForServer(url) {
@@ -58,7 +67,10 @@ try {
   if (migration.code !== 0) process.exitCode = migration.code;
   else {
     if (!process.env.E2E_BASE_URL) {
-      server = spawn(process.execPath, [nextCli, "start"], {
+      const serverScript = process.platform === "win32" ? nextCli : standaloneServer;
+      const serverArgs = process.platform === "win32" ? [serverScript, "start"] : [serverScript];
+      if (process.platform !== "win32") await prepareStandaloneServer();
+      server = spawn(process.execPath, serverArgs, {
         cwd: projectRoot,
         env: { ...env, PORT: "3000" },
         stdio: "inherit",

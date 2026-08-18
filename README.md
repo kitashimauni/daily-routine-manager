@@ -15,11 +15,11 @@ Todayの`?date=YYYY-MM-DD`は実在する日付だけを受け付けます。形
 
 ```powershell
 mise install
-pnpm install
+mise exec -- pnpm install
 Copy-Item .env.example .env
 docker compose up -d postgres
-pnpm db:migrate
-pnpm dev
+mise exec -- pnpm db:migrate
+mise exec -- pnpm dev
 ```
 
 Windowsでmise本体が未導入の場合は、先に `scoop install mise` または `winget install jdx.mise` を実行してください。
@@ -28,9 +28,9 @@ Windowsでmise本体が未導入の場合は、先に `scoop install mise` ま�
 
 ## 本番リリース
 
-本番ホスティングはVercel、PostgreSQLはVercelのPreview / Productionごとに分離した管理PostgreSQL（Neon PostgreSQLを推奨）を使用します。`main`へのpushはProduction、Pull Requestや`main`以外のブランチはPreviewとして接続し、VercelのGit連携で同じcommitを再現可能にデプロイします。設定の詳細と初回セットアップ、migration、バックアップ、復旧、smoke testは[`docs/release-runbook.md`](docs/release-runbook.md)を参照してください。
+本番構成はDocker self-hostです。アプリとPostgreSQLは`compose.prod.yaml`で管理し、外部のHTTPS reverse proxyだけをInternetの入口にします。`app`はDocker network上の`3000`だけで待ち受け、PostgreSQLはhostへ公開しません。Productionは`main`のcommit、Previewは検証用の別DBとrelease情報を指定して起動します。設定の詳細と初回セットアップ、migration、バックアップ、復旧、smoke testは[`docs/release-runbook.md`](docs/release-runbook.md)を参照してください。
 
-Vercelのビルドは `pnpm verify:deploy && pnpm db:migrate && pnpm build` の順で実行されます。環境検証またはmigrationが失敗した場合はデプロイを公開しません。実デプロイのcommit、環境、URLは `GET /api/health` で確認できます。
+Productionのdeployは、同じcommitからDocker imageをbuildし、one-shotの`migrate` serviceで環境検証とmigrationを実行してから`app`を起動します。image buildにはDB変更を含めません。migrationが失敗した場合はappを起動しません。稼働中のcommit、version、環境は`GET /api/health`で確認できます。
 
 初回アクセス時にアカウントを登録して利用します。新規登録直後はルーティーン0件の状態で始まり、Todayの「最初のルーティーンを追加」から登録できます。ルーティーンと完了ログはPostgreSQLにユーザー単位で保存されるため、ブラウザを変えても同じアカウントで参照できます。
 
@@ -41,16 +41,19 @@ APIやDBの一時障害が起きた場合、既に表示しているルーティ
 - `DATABASE_URL` — PostgreSQL接続URL
 - `POSTGRES_PORT` — Composeで公開するPostgreSQLポート（既定値は `5432`）
 - `APP_TIME_ZONE` — 日付の境界に使うIANAタイムゾーン（既定値は `Asia/Tokyo`）
-- `DEPLOY_ENV` — デプロイ先の環境（ローカルは `local`、Vercel Previewは `preview`、Productionは `production`）
+- `DEPLOY_ENV` — デプロイ先の環境（ローカルは `local`、Previewは `preview`、Productionは `production`）
 - `RELEASE_VERSION` — `/api/health`で表示するリリースバージョン（未指定時はpackage.jsonのversion）
+- `RELEASE_COMMIT_SHA` — 稼働commit SHA（Production / Previewでは必須）
+- `RELEASE_BRANCH` — 稼働ブランチ（Productionは `main` 必須）
+- `TRUST_PROXY_HEADERS` — 管理下のreverse proxyがclient IPを正規化した場合だけ `true`
 
 既存のブラウザ `localStorage` データは自動移行しません。本番用の永続化基盤へ切り替えるため、必要なデータはDB移行後に再登録してください。
 
 スキーマを変更した場合は、次の順にマイグレーションを生成・適用します。
 
 ```bash
-pnpm db:generate
-pnpm db:migrate
+mise exec -- pnpm db:generate
+mise exec -- pnpm db:migrate
 ```
 
 ## 検証
@@ -88,6 +91,9 @@ mise exec -- pnpm test:e2e
 mise exec -- pnpm db:check
 mise exec -- pnpm audit --audit-level high
 mise exec -- pnpm verify:deploy
+docker compose --profile ops --env-file .env.production.example -f compose.prod.yaml config
+docker build --target runner --tag daily-routine-manager:ci .
+docker build --target migrate --tag daily-routine-manager:migrate-ci .
 ```
 
-Production / Previewの公開URLを確認する場合は、`SMOKE_BASE_URL=https://... mise exec -- pnpm smoke` を実行します。Productionでは `SMOKE_EXPECTED_COMMIT_SHA` にVercelのデプロイcommit SHAを指定すると、想定commitとの一致も確認できます。
+Production / Previewの公開URLを確認する場合は、HTTPS reverse proxy経由のURLを指定して`SMOKE_BASE_URL=https://... mise exec -- pnpm smoke`を実行します。Productionでは`SMOKE_EXPECTED_COMMIT_SHA`に`RELEASE_COMMIT_SHA`を指定すると、想定commitとの一致も確認できます。

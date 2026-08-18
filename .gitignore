@@ -7,3 +7,5 @@ out/
 test-results/
 .env*
 !.env.example
+!.env.production.example
+!.env.preview.example

@@ -46,6 +46,10 @@ describe("date input validation", () => {
     const forgedRequest = new Request("https://example.com", { headers: { "x-forwarded-for": "198.51.100.20", "x-real-ip": "198.51.100.21" } });
     expect(getClientIp(forgedRequest)).toBe("unknown");
 
+    vi.stubEnv("TRUST_PROXY_HEADERS", "true");
+    const selfHostedRequest = new Request("https://example.com", { headers: { "x-forwarded-for": "198.51.100.20" } });
+    expect(getClientIp(selfHostedRequest)).toBe("198.51.100.20");
+
     vi.stubEnv("VERCEL", "1");
     const vercelRequest = new Request("https://example.com", { headers: { "x-forwarded-for": "198.51.100.20", "x-vercel-forwarded-for": "203.0.113.10" } });
     expect(getClientIp(vercelRequest)).toBe("203.0.113.10");
