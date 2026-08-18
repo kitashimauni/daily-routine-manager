@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up mise tools
+        uses: jdx/mise-action@v4
+
+      - name: Install dependencies
+        run: mise exec -- pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: mise exec -- pnpm exec tsc --noEmit
+
+      - name: Lint
+        run: mise exec -- pnpm lint
+
+      - name: Build
+        run: mise exec -- pnpm build
+
+      - name: Check database schema
+        run: mise exec -- pnpm db:check
+
+      - name: Audit dependencies
+        run: mise exec -- pnpm audit --audit-level high
