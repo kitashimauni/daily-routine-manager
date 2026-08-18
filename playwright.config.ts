@@ -9,6 +9,7 @@ export default defineConfig({
   reporter: "list",
   use: {
     baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000",
+    timezoneId: "Asia/Tokyo",
     trace: "on-first-retry",
     ...devices["Desktop Chrome"],
   },

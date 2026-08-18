@@ -37,6 +37,21 @@ async function createRoutineOnDay(page: Page, content: string, dayIndex: number)
   await expect(page.getByText(content)).toBeVisible();
 }
 
+function testClientIp(testId: string, retry: number) {
+  let hash = 2166136261;
+  for (const character of testId) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  const high = (hash >>> 16).toString(16);
+  const low = (hash & 0xffff).toString(16);
+  return `2001:db8:${high}:${low}::${retry + 1}`;
+}
+
+test.beforeEach(async ({ page }, testInfo) => {
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": testClientIp(testInfo.testId, testInfo.retry) });
+});
+
 test("registers, records, edits, disables, and restores an isolated routine flow", async ({ page }) => {
   const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const firstEmail = `e2e-${unique}@example.com`;
