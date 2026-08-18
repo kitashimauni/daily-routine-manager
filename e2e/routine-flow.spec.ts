@@ -177,3 +177,30 @@ test("keeps authentication inputs for a rate-limit retry", async ({ page }) => {
   await page.getByRole("button", { name: "再送信" }).click();
   await expect(page.getByText(email)).toBeVisible();
 });
+
+test("keeps a successful session when the initial routine load temporarily fails", async ({ page }) => {
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-load-retry-${unique}@example.com`;
+  const password = "correct-horse-battery-staple";
+  let shouldFail = true;
+
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": `198.51.100.${Math.floor(Math.random() * 200) + 1}` });
+  await page.route("**/api/routines", async (route) => {
+    if (route.request().method() === "GET" && shouldFail) {
+      shouldFail = false;
+      await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "一時的にデータを取得できません。" }) });
+      return;
+    }
+    await route.continue();
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "初めて利用する方はこちら" }).click();
+  await page.getByLabel("メールアドレス").fill(email);
+  await page.getByLabel("パスワード").fill(password);
+  await page.getByRole("button", { name: "登録する" }).click();
+  await expect(page.getByText(email)).toBeVisible();
+  await expect(page.locator(".app-error")).toContainText("一時的にデータを取得できません。");
+  await expect(page.getByRole("button", { name: "データを再読み込み" })).toBeVisible();
+  await page.getByRole("button", { name: "データを再読み込み" }).click();
+  await expect(page.getByText("体を動かす")).toBeVisible();
+});

@@ -120,21 +120,32 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     setErrorSource(null);
     setHydrated(false);
+    let response: { user: AuthUser };
     try {
-      const response = await requestJson<{ user: AuthUser }>(endpoint, { method: "POST", body: JSON.stringify({ email, password }) });
-      setUser(response.user);
-      await loadRoutineData();
-    } catch (requestError) {
+      response = await requestJson<{ user: AuthUser }>(endpoint, { method: "POST", body: JSON.stringify({ email, password }) });
+    } catch (authError) {
       setUser(null);
       resetData();
-      setError(errorMessage(requestError));
+      setError(errorMessage(authError));
       setErrorSource("auth");
-      throw requestError;
+      setAuthHydrated(true);
+      throw authError;
+    }
+
+    setUser(response.user);
+    try {
+      await loadRoutineData();
+    } catch (dataError) {
+      if (isUnauthorizedError(dataError)) invalidateSession();
+      else {
+        setError(errorMessage(dataError));
+        setErrorSource("data");
+      }
     } finally {
       setAuthHydrated(true);
       setHydrated(true);
     }
-  }, [loadRoutineData, resetData]);
+  }, [invalidateSession, loadRoutineData, resetData]);
 
   const login = useCallback((email: string, password: string) => authenticate("/api/auth/login", email, password), [authenticate]);
   const register = useCallback((email: string, password: string) => authenticate("/api/auth/register", email, password), [authenticate]);
