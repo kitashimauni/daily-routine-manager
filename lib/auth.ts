@@ -2,11 +2,18 @@ import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "no
 import { and, eq, gt, lt } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { getDatabase } from "@/lib/db";
+import type { Database } from "@/lib/db";
 import { sessions, users } from "@/lib/db/schema";
+import { seedDefaultRoutinesInTransaction } from "@/lib/routine-service";
+import { getServerTodayDate } from "@/lib/server-date";
 import type { AuthUser } from "@/lib/types";
 
 const SESSION_COOKIE = "routine_session";
 const SESSION_DAYS = 30;
+const MAX_EMAIL_LENGTH = 254;
+const MAX_PASSWORD_LENGTH = 256;
+
+type DatabaseWriter = Pick<Database, "insert">;
 
 export class AuthError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -22,7 +29,9 @@ function normalizeEmail(email: string) {
 function validateCredentials(email: string, password: string) {
   const normalizedEmail = normalizeEmail(email);
   if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) throw new AuthError("有効なメールアドレスを入力してください。", 400);
+  if (normalizedEmail.length > MAX_EMAIL_LENGTH) throw new AuthError("メールアドレスが長すぎます。", 400);
   if (password.length < 12) throw new AuthError("パスワードは12文字以上で入力してください。", 400);
+  if (password.length > MAX_PASSWORD_LENGTH) throw new AuthError("パスワードが長すぎます。", 400);
   return normalizedEmail;
 }
 
@@ -67,11 +76,15 @@ async function setSessionCookie(token: string) {
   });
 }
 
-async function createSession(userId: string) {
-  const db = getDatabase();
+async function createSessionRecord(writer: DatabaseWriter, userId: string) {
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000).toISOString();
-  await db.insert(sessions).values({ id: randomUUID(), tokenHash: hashSessionToken(token), userId, expiresAt });
+  await writer.insert(sessions).values({ id: randomUUID(), tokenHash: hashSessionToken(token), userId, expiresAt });
+  return token;
+}
+
+async function createSession(userId: string) {
+  const token = await createSessionRecord(getDatabase(), userId);
   await setSessionCookie(token);
 }
 
@@ -79,8 +92,15 @@ export async function registerUser(email: string, password: string): Promise<Aut
   const normalizedEmail = validateCredentials(email, password);
   const db = getDatabase();
   const userId = randomUUID();
+  const passwordHash = await hashPassword(password);
+  const timestamp = new Date().toISOString();
   try {
-    await db.insert(users).values({ id: userId, email: normalizedEmail, passwordHash: await hashPassword(password) });
+    const sessionToken = await db.transaction(async (tx) => {
+      await tx.insert(users).values({ id: userId, email: normalizedEmail, passwordHash, createdAt: timestamp });
+      await seedDefaultRoutinesInTransaction(tx, userId, getServerTodayDate(), timestamp);
+      return createSessionRecord(tx, userId);
+    });
+    await setSessionCookie(sessionToken);
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "23505") throw new AuthError("このメールアドレスはすでに登録されています。", 409);
     throw error;
@@ -90,8 +110,7 @@ export async function registerUser(email: string, password: string): Promise<Aut
 }
 
 export async function loginUser(email: string, password: string): Promise<AuthUser> {
-  const normalizedEmail = normalizeEmail(email);
-  if (!normalizedEmail || !password) throw new AuthError("メールアドレスとパスワードを入力してください。", 400);
+  const normalizedEmail = validateCredentials(email, password);
   const db = getDatabase();
   const [user] = await db.select({ id: users.id, email: users.email, passwordHash: users.passwordHash }).from(users).where(eq(users.email, normalizedEmail)).limit(1);
   if (!user || !(await verifyPassword(password, user.passwordHash))) throw new AuthError("メールアドレスまたはパスワードが正しくありません。", 401);

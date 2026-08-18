@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDatabase } from "@/lib/db";
+import type { Database } from "@/lib/db";
 import { routineLogs, routineRevisions, routines } from "@/lib/db/schema";
 import { getDayOfWeek } from "@/lib/date";
 import { addDateDays, getServerTodayDate } from "@/lib/server-date";
@@ -12,6 +13,8 @@ export class RoutineServiceError extends Error {
     this.name = "RoutineServiceError";
   }
 }
+
+type DatabaseWriter = Pick<Database, "insert">;
 
 function isDateKey(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -162,24 +165,25 @@ export async function createRoutineForUser(userId: string, input: RoutineInput) 
   return (await findRoutine(userId, routineId)).routine;
 }
 
-export async function seedDefaultRoutines(userId: string) {
-  const today = getServerTodayDate();
-  const timestamp = new Date().toISOString();
-  const seed = [
+const defaultRoutines = [
     ["体を動かす", "required", [1, 2, 3, 4, 5]],
     ["本を読む", "required", [0, 1, 2, 3, 4, 5, 6]],
     ["英語を勉強する", "optional", [1, 2, 3, 4, 5]],
     ["日記を書く", "optional", [0, 2, 4, 6]],
   ] as const;
-  const db = getDatabase();
-  await db.transaction(async (tx) => {
-    for (const [content, priority, daysOfWeek] of seed) {
-      const routineId = randomUUID();
-      const mutableDaysOfWeek = [...daysOfWeek];
-      await tx.insert(routines).values({ id: routineId, userId, content, priority, daysOfWeek: mutableDaysOfWeek, startDate: today, isActive: true, createdAt: timestamp, updatedAt: timestamp });
-      await tx.insert(routineRevisions).values({ id: randomUUID(), routineId, content, priority, daysOfWeek: mutableDaysOfWeek, startDate: today, isActive: true, createdAt: timestamp });
-    }
-  });
+
+export async function seedDefaultRoutinesInTransaction(
+  tx: DatabaseWriter,
+  userId: string,
+  today = getServerTodayDate(),
+  timestamp = new Date().toISOString(),
+) {
+  for (const [content, priority, daysOfWeek] of defaultRoutines) {
+    const routineId = randomUUID();
+    const mutableDaysOfWeek = [...daysOfWeek];
+    await tx.insert(routines).values({ id: routineId, userId, content, priority, daysOfWeek: mutableDaysOfWeek, startDate: today, isActive: true, createdAt: timestamp, updatedAt: timestamp });
+    await tx.insert(routineRevisions).values({ id: randomUUID(), routineId, content, priority, daysOfWeek: mutableDaysOfWeek, startDate: today, isActive: true, createdAt: timestamp });
+  }
 }
 
 export async function updateRoutineForUser(userId: string, routineId: string, input: RoutineInput) {
@@ -211,19 +215,24 @@ export async function reactivateRoutineForUser(userId: string, routineId: string
   return updateRoutineForUser(userId, routineId, inputFromRevision(currentRevision, { isActive: true, startDate: today, endDate: undefined }));
 }
 
-export async function toggleRoutineLog(userId: string, routineId: string, date: string) {
+export async function setRoutineLog(userId: string, routineId: string, date: string, completed: boolean) {
   if (!isDateKey(date)) throw new RoutineServiceError("日付の指定が不正です。", 400);
   const { routine } = await findRoutine(userId, routineId);
   const today = getServerTodayDate();
   const revision = revisionForDate(routine, date);
   if (date > today || !revision || !revision.isActive || !revision.daysOfWeek.includes(getDayOfWeek(date))) throw new RoutineServiceError("この日に記録できるルーティーンではありません。", 400);
   const db = getDatabase();
-  const [existing] = await db.select().from(routineLogs).where(and(eq(routineLogs.userId, userId), eq(routineLogs.routineId, routineId), eq(routineLogs.date, date))).limit(1);
-  if (existing) {
-    await db.delete(routineLogs).where(eq(routineLogs.id, existing.id));
+  if (!completed) {
+    await db.delete(routineLogs).where(and(eq(routineLogs.userId, userId), eq(routineLogs.routineId, routineId), eq(routineLogs.date, date)));
     return null;
   }
   const timestamp = new Date().toISOString();
-  const [log] = await db.insert(routineLogs).values({ id: randomUUID(), userId, routineId, date, createdAt: timestamp, updatedAt: timestamp }).returning();
-  return { id: log.id, routineId: log.routineId, date: log.date, createdAt: log.createdAt, updatedAt: log.updatedAt } satisfies RoutineLog;
+  const [log] = await db.insert(routineLogs)
+    .values({ id: randomUUID(), userId, routineId, date, createdAt: timestamp, updatedAt: timestamp })
+    .onConflictDoNothing({ target: [routineLogs.routineId, routineLogs.date] })
+    .returning();
+  if (log) return { id: log.id, routineId: log.routineId, date: log.date, createdAt: log.createdAt, updatedAt: log.updatedAt } satisfies RoutineLog;
+  const [existing] = await db.select().from(routineLogs).where(and(eq(routineLogs.userId, userId), eq(routineLogs.routineId, routineId), eq(routineLogs.date, date))).limit(1);
+  if (!existing) throw new RoutineServiceError("完了ログの保存に失敗しました。", 500);
+  return { id: existing.id, routineId: existing.routineId, date: existing.date, createdAt: existing.createdAt, updatedAt: existing.updatedAt } satisfies RoutineLog;
 }

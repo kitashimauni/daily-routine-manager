@@ -36,6 +36,22 @@ export const sessions = pgTable(
   (table) => [index("sessions_user_id_idx").on(table.userId), index("sessions_expires_at_idx").on(table.expiresAt)],
 );
 
+export const authRateLimits = pgTable(
+  "auth_rate_limits",
+  {
+    id: text("id").primaryKey(),
+    action: text("action").notNull(),
+    ip: text("ip").notNull(),
+    windowStartedAt: timestamp("window_started_at", { withTimezone: true, mode: "string" }).notNull(),
+    attempts: integer("attempts").notNull(),
+    ...timestamps(),
+  },
+  (table) => [
+    uniqueIndex("auth_rate_limits_action_ip_idx").on(table.action, table.ip),
+    index("auth_rate_limits_updated_at_idx").on(table.updatedAt),
+  ],
+);
+
 export const routines = pgTable(
   "routines",
   {
@@ -84,6 +100,7 @@ export const routineLogs = pgTable(
 );
 
 export type UserRow = typeof users.$inferSelect;
+export type AuthRateLimitRow = typeof authRateLimits.$inferSelect;
 export type RoutineRow = typeof routines.$inferSelect;
 export type RoutineRevisionRow = typeof routineRevisions.$inferSelect;
 export type RoutineLogRow = typeof routineLogs.$inferSelect;

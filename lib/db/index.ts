@@ -2,7 +2,7 @@ import postgres from "postgres";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/lib/db/schema";
 
-type Database = PostgresJsDatabase<typeof schema>;
+export type Database = PostgresJsDatabase<typeof schema>;
 
 const globalForDatabase = globalThis as unknown as {
   sqlClient?: ReturnType<typeof postgres>;

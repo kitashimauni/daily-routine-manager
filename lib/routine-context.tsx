@@ -139,8 +139,10 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
   const isCompleted = useCallback((routineId: string, date: string) => Boolean(logs[`${routineId}__${date}`]), [logs]);
 
   const toggleRoutine = useCallback(async (routineId: string, date: string) => {
+    const completed = !Boolean(logs[`${routineId}__${date}`]);
+    setError(null);
     try {
-      const response = await requestJson<{ log: RoutineLog | null }>(`/api/routines/${encodeURIComponent(routineId)}`, { method: "POST", body: JSON.stringify({ action: "toggle", date }) });
+      const response = await requestJson<{ log: RoutineLog | null }>(`/api/routines/${encodeURIComponent(routineId)}/log`, { method: "PUT", body: JSON.stringify({ date, completed }) });
       setLogs((current) => {
         const next = { ...current };
         const key = `${routineId}__${date}`;
@@ -151,23 +153,27 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
     } catch (requestError) {
       setError(errorMessage(requestError));
     }
-  }, []);
+  }, [logs]);
 
   const addRoutine = useCallback(async (input: RoutineInput) => {
+    setError(null);
     try {
       const response = await requestJson<{ routine: Routine }>("/api/routines", { method: "POST", body: JSON.stringify(input) });
       setRoutines((current) => [...current, response.routine]);
     } catch (requestError) {
       setError(errorMessage(requestError));
+      throw requestError;
     }
   }, []);
 
   const updateRoutine = useCallback(async (routineId: string, input: RoutineInput) => {
+    setError(null);
     try {
       const response = await requestJson<{ routine: Routine }>(`/api/routines/${encodeURIComponent(routineId)}`, { method: "PATCH", body: JSON.stringify(input) });
       setRoutines((current) => current.map((routine) => routine.id === routineId ? response.routine : routine));
     } catch (requestError) {
       setError(errorMessage(requestError));
+      throw requestError;
     }
   }, []);
 
