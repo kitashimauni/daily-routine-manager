@@ -43,8 +43,12 @@ pnpm db:migrate
 
 ## 検証
 
+GitHub Actions（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）で、Pull Requestと `main` へのpush時に、miseで固定したNode.js / pnpmを使って同じ検証を自動実行します。CIは本番DBへ接続しません。
+
 ```bash
 mise exec -- pnpm exec tsc --noEmit
 mise exec -- pnpm lint
 mise exec -- pnpm build
+mise exec -- pnpm db:check
+mise exec -- pnpm audit --audit-level high
 ```
