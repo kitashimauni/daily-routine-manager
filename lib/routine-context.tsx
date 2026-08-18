@@ -1,8 +1,8 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { getDayOfWeek } from "@/lib/date";
-import type { AuthUser, DailyRoutines, Routine, RoutineInput, RoutineLog, RoutineLogs, RoutineWithStatus } from "@/lib/types";
+import { getDailyRoutinesForDate } from "@/lib/routine-view";
+import type { AuthUser, DailyRoutines, Routine, RoutineInput, RoutineLog, RoutineLogs } from "@/lib/types";
 
 export type { RoutineInput } from "@/lib/types";
 
@@ -43,12 +43,6 @@ async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Pro
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "サーバーでエラーが発生しました。";
-}
-
-function revisionForDate(routine: Routine, date: string) {
-  return [...routine.revisions]
-    .sort((left, right) => right.startDate.localeCompare(left.startDate))
-    .find((revision) => date >= revision.startDate && (!revision.endDate || date <= revision.endDate));
 }
 
 export function RoutineProvider({ children }: { children: React.ReactNode }) {
@@ -122,19 +116,7 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
     }
   }, [resetData]);
 
-  const getDailyRoutines = useCallback((date: string): DailyRoutines => {
-    const dayOfWeek = getDayOfWeek(date);
-    const scheduled = routines.flatMap((routine): RoutineWithStatus[] => {
-      const revision = revisionForDate(routine, date);
-      if (!revision || !revision.isActive || !revision.daysOfWeek.includes(dayOfWeek)) return [];
-      const routineForDate: Routine = { ...routine, content: revision.content, priority: revision.priority, daysOfWeek: revision.daysOfWeek, startDate: revision.startDate, endDate: revision.endDate, isActive: revision.isActive };
-      return [{ routine: routineForDate, completed: Boolean(logs[`${routine.id}__${date}`]) }];
-    });
-    return {
-      required: scheduled.filter(({ routine }) => routine.priority === "required"),
-      optional: scheduled.filter(({ routine }) => routine.priority === "optional"),
-    };
-  }, [logs, routines]);
+  const getDailyRoutines = useCallback((date: string): DailyRoutines => getDailyRoutinesForDate(routines, logs, date), [logs, routines]);
 
   const isCompleted = useCallback((routineId: string, date: string) => Boolean(logs[`${routineId}__${date}`]), [logs]);
 

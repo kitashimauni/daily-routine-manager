@@ -22,3 +22,9 @@ export function getDatabase() {
   if (!globalForDatabase.database) globalForDatabase.database = drizzle(globalForDatabase.sqlClient, { schema });
   return globalForDatabase.database;
 }
+
+export async function closeDatabaseForTests() {
+  await globalForDatabase.sqlClient?.end({ timeout: 5 });
+  globalForDatabase.sqlClient = undefined;
+  globalForDatabase.database = undefined;
+}

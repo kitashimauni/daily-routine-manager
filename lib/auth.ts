@@ -13,6 +13,12 @@ const SESSION_DAYS = 30;
 const MAX_EMAIL_LENGTH = 254;
 const MAX_PASSWORD_LENGTH = 256;
 
+type CookieStore = Awaited<ReturnType<typeof cookies>>;
+
+export interface AuthOptions {
+  cookieStore?: CookieStore;
+}
+
 type DatabaseWriter = Pick<Database, "insert">;
 
 export class AuthError extends Error {
@@ -65,9 +71,15 @@ function hashSessionToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
-async function setSessionCookie(token: string) {
-  const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE, token, {
+function hasDatabaseErrorCode(error: unknown, code: string): boolean {
+  if (!error || typeof error !== "object") return false;
+  if ("code" in error && error.code === code) return true;
+  return "cause" in error && hasDatabaseErrorCode(error.cause, code);
+}
+
+async function setSessionCookie(token: string, cookieStore?: CookieStore) {
+  const store = cookieStore ?? await cookies();
+  store.set(SESSION_COOKIE, token, {
     httpOnly: true,
     maxAge: SESSION_DAYS * 24 * 60 * 60,
     path: "/",
@@ -83,12 +95,12 @@ async function createSessionRecord(writer: DatabaseWriter, userId: string) {
   return token;
 }
 
-async function createSession(userId: string) {
+async function createSession(userId: string, cookieStore?: CookieStore) {
   const token = await createSessionRecord(getDatabase(), userId);
-  await setSessionCookie(token);
+  await setSessionCookie(token, cookieStore);
 }
 
-export async function registerUser(email: string, password: string): Promise<AuthUser> {
+export async function registerUser(email: string, password: string, options: AuthOptions = {}): Promise<AuthUser> {
   const normalizedEmail = validateCredentials(email, password);
   const db = getDatabase();
   const userId = randomUUID();
@@ -100,25 +112,26 @@ export async function registerUser(email: string, password: string): Promise<Aut
       await seedDefaultRoutinesInTransaction(tx, userId, getServerTodayDate(), timestamp);
       return createSessionRecord(tx, userId);
     });
-    await setSessionCookie(sessionToken);
+    await setSessionCookie(sessionToken, options.cookieStore);
   } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "23505") throw new AuthError("このメールアドレスはすでに登録されています。", 409);
+    if (hasDatabaseErrorCode(error, "23505")) throw new AuthError("このメールアドレスはすでに登録されています。", 409);
     throw error;
   }
   return { id: userId, email: normalizedEmail };
 }
 
-export async function loginUser(email: string, password: string): Promise<AuthUser> {
+export async function loginUser(email: string, password: string, options: AuthOptions = {}): Promise<AuthUser> {
   const normalizedEmail = validateCredentials(email, password);
   const db = getDatabase();
   const [user] = await db.select({ id: users.id, email: users.email, passwordHash: users.passwordHash }).from(users).where(eq(users.email, normalizedEmail)).limit(1);
   if (!user || !(await verifyPassword(password, user.passwordHash))) throw new AuthError("メールアドレスまたはパスワードが正しくありません。", 401);
-  await createSession(user.id);
+  await createSession(user.id, options.cookieStore);
   return { id: user.id, email: user.email };
 }
 
-export async function getCurrentUser(): Promise<AuthUser | null> {
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+export async function getCurrentUser(options: AuthOptions = {}): Promise<AuthUser | null> {
+  const store = options.cookieStore ?? await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
   if (!token) return null;
   const db = getDatabase();
   const [session] = await db
@@ -137,11 +150,11 @@ export async function requireUser() {
   return user;
 }
 
-export async function logoutUser() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE)?.value;
+export async function logoutUser(options: AuthOptions = {}) {
+  const store = options.cookieStore ?? await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
   if (token) await getDatabase().delete(sessions).where(eq(sessions.tokenHash, hashSessionToken(token)));
-  cookieStore.delete(SESSION_COOKIE);
+  store.delete(SESSION_COOKIE);
 }
 
 export async function removeExpiredSessions() {

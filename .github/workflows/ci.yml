@@ -17,6 +17,26 @@ jobs:
   validate:
     name: Validate
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      APP_TIME_ZONE: Asia/Tokyo
+      TEST_DATABASE_URL: postgresql://routine_test:test_password@localhost:5432/routine_test
+      DATABASE_URL: postgresql://routine_test:test_password@localhost:5432/routine_test
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: routine_test
+          POSTGRES_USER: routine_test
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U routine_test -d routine_test"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 20
 
     steps:
       - name: Check out repository
@@ -34,8 +54,17 @@ jobs:
       - name: Lint
         run: mise exec -- pnpm lint
 
+      - name: Test
+        run: mise exec -- pnpm test
+
       - name: Build
         run: mise exec -- pnpm build
+
+      - name: Install Playwright browser
+        run: mise exec -- pnpm exec playwright install --with-deps chromium
+
+      - name: End-to-end test
+        run: mise exec -- pnpm test:e2e
 
       - name: Check database schema
         run: mise exec -- pnpm db:check
