@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { getDailyRoutinesForDate } from "@/lib/routine-view";
 import type { AuthUser, DailyRoutines, Routine, RoutineInput, RoutineLog, RoutineLogs } from "@/lib/types";
 
@@ -67,6 +67,7 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [logs, setLogs] = useState<RoutineLogs>({});
   const [hydrated, setHydrated] = useState(false);
+  const logoutRequestRef = useRef<Promise<void> | null>(null);
 
   const resetData = useCallback(() => {
     setRoutines([]);
@@ -167,18 +168,32 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
   const register = useCallback((email: string, password: string) => authenticate("/api/auth/register", email, password), [authenticate]);
 
   const logout = useCallback(async () => {
-    setError(null);
-    setErrorSource(null);
-    try {
-      await authenticatedRequestJson<{ ok: true }>("/api/auth/logout", { method: "POST" });
-      setUser(null);
-      resetData();
-    } catch (requestError) {
-      if (isUnauthorizedError(requestError)) invalidateSession();
-      else {
-        setError(errorMessage(requestError));
-        setErrorSource("data");
+    if (logoutRequestRef.current) {
+      await logoutRequestRef.current;
+      return;
+    }
+
+    const request = (async () => {
+      setError(null);
+      setErrorSource(null);
+      try {
+        await authenticatedRequestJson<{ ok: true }>("/api/auth/logout", { method: "POST" });
+        setUser(null);
+        resetData();
+      } catch (requestError) {
+        if (isUnauthorizedError(requestError)) invalidateSession();
+        else {
+          setError(errorMessage(requestError));
+          setErrorSource("data");
+        }
       }
+    })();
+    logoutRequestRef.current = request;
+
+    try {
+      await request;
+    } finally {
+      logoutRequestRef.current = null;
     }
   }, [authenticatedRequestJson, invalidateSession, resetData]);
 
