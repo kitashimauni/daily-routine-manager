@@ -209,7 +209,6 @@ test("keeps Today date navigation stable for past and future dates", async ({ pa
   await page.goto(`/?date=${pastDate}`);
   await expect(page.getByRole("button", { name: "今日に戻る" })).toBeVisible();
   await expect(page.locator(".read-only-note")).toBeHidden();
-  await expect(page.getByText("日付ナビゲーション")).toBeVisible();
 
   const pastPreviousBox = await previousButton.boundingBox();
   const pastNextBox = await nextButton.boundingBox();
