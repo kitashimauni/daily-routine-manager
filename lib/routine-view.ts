@@ -7,21 +7,25 @@ export function revisionForDate(routine: Routine, date: string) {
     .find((revision) => date >= revision.startDate && (!revision.endDate || date <= revision.endDate));
 }
 
+export function routineForDate(routine: Routine, date: string): Routine | null {
+  const revision = revisionForDate(routine, date);
+  if (!revision || !revision.isActive || !revision.daysOfWeek.includes(getDayOfWeek(date))) return null;
+  return {
+    ...routine,
+    content: revision.content,
+    priority: revision.priority,
+    daysOfWeek: revision.daysOfWeek,
+    startDate: revision.startDate,
+    endDate: revision.endDate,
+    isActive: revision.isActive,
+  };
+}
+
 export function getDailyRoutinesForDate(routines: Routine[], logs: RoutineLogs, date: string): DailyRoutines {
-  const dayOfWeek = getDayOfWeek(date);
   const scheduled = routines.flatMap((routine): RoutineWithStatus[] => {
-    const revision = revisionForDate(routine, date);
-    if (!revision || !revision.isActive || !revision.daysOfWeek.includes(dayOfWeek)) return [];
-    const routineForDate: Routine = {
-      ...routine,
-      content: revision.content,
-      priority: revision.priority,
-      daysOfWeek: revision.daysOfWeek,
-      startDate: revision.startDate,
-      endDate: revision.endDate,
-      isActive: revision.isActive,
-    };
-    return [{ routine: routineForDate, completed: Boolean(logs[`${routine.id}__${date}`]) }];
+    const scheduledRoutine = routineForDate(routine, date);
+    if (!scheduledRoutine) return [];
+    return [{ routine: scheduledRoutine, completed: Boolean(logs[`${routine.id}__${date}`]) }];
   });
   return {
     required: scheduled.filter(({ routine }) => routine.priority === "required"),

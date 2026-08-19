@@ -28,9 +28,10 @@ async function register(page: Page, email: string, password: string) {
   await expect(page.getByText(email)).toBeVisible();
 }
 
-async function createRoutine(page: Page, content: string) {
+async function createRoutine(page: Page, content: string, startDate?: string) {
   await page.getByRole("link", { name: "Routines" }).click();
   await page.getByLabel("内容").fill(content);
+  if (startDate) await page.getByLabel("開始日").fill(startDate);
   await page.getByRole("button", { name: "日", exact: true }).click();
   await page.getByRole("button", { name: "土", exact: true }).click();
   await page.getByRole("button", { name: "追加する" }).click();
@@ -230,6 +231,52 @@ test("keeps Today date navigation stable for past and future dates", async ({ pa
   expect(mobileNavBox!.x).toBeGreaterThanOrEqual(0);
   expect(mobileNavBox!.x + mobileNavBox!.width).toBeLessThanOrEqual(375);
   expect(mobileActionsBox!.x + mobileActionsBox!.width).toBeLessThanOrEqual(375);
+});
+
+test("filters Calendar by routine history and keeps the selector safe", async ({ page }) => {
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-calendar-routine-${unique}@example.com`;
+  const password = "correct-horse-battery-staple";
+  const todayDate = dateKey(new Date());
+  const startDate = `${todayDate.slice(0, 7)}-01`;
+
+  await register(page, email, password);
+  await createRoutine(page, "Calendarで追跡するRoutine", startDate);
+  await page.getByRole("link", { name: "Today" }).click();
+  await page.getByRole("button", { name: "Calendarで追跡するRoutineを完了にする" }).click();
+  await expect(page.getByRole("button", { name: "Calendarで追跡するRoutineを未完了に戻す" })).toBeVisible();
+
+  await page.getByRole("link", { name: "Calendar" }).click();
+  const routineFilter = page.getByLabel("表示対象");
+  const routineOption = routineFilter.locator("option").filter({ hasText: "Calendarで追跡するRoutine" });
+  const routineId = await routineOption.getAttribute("value");
+  expect(routineId).toBeTruthy();
+  await routineFilter.selectOption(routineId!);
+  await expect(page).toHaveURL(new RegExp(`\\?routine=${routineId}$`));
+  await expect(page.getByText("予定あり・未完了")).toBeVisible();
+  await expect(page.getByText("予定なし")).toBeVisible();
+  await expect(page.locator(".calendar-cell.today .day-dot.complete")).toBeVisible();
+
+  await page.getByRole("button", { name: "前の月" }).click();
+  await expect(page.locator(".day-dot.none").first()).toBeVisible();
+  await page.getByRole("button", { name: "次の月" }).click();
+
+  await page.goto("/calendar?routine=not-a-routine-owned-by-this-user");
+  await expect(page).toHaveURL(/\/calendar$/);
+  await expect(page.getByLabel("表示対象")).toHaveValue("");
+
+  await page.getByRole("link", { name: "Routines" }).click();
+  const routineRow = page.locator(".managed-row").filter({ hasText: "Calendarで追跡するRoutine" });
+  const historyLink = routineRow.getByRole("link", { name: "履歴" });
+  await expect(historyLink).toBeVisible();
+  await historyLink.click();
+  await expect(page).toHaveURL(new RegExp(`\\?routine=${routineId}$`));
+  await expect(page.getByLabel("表示対象")).toHaveValue(routineId!);
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  const filterBox = await page.getByLabel("表示対象").boundingBox();
+  expect(filterBox).not.toBeNull();
+  expect(filterBox!.x + filterBox!.width).toBeLessThanOrEqual(375);
 });
 
 test("clears stale routine data after an authenticated API returns 401", async ({ page }) => {
