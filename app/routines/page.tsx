@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Icon } from "@/components/icon";
 import { formatShortDate, getTodayDate, WEEKDAYS } from "@/lib/date";
 import { useRoutines, type RoutineInput } from "@/lib/routine-context";
@@ -92,6 +93,7 @@ function ManagedRoutine({ routine, onEdit, onDeactivate, onReactivate }: { routi
         <div className="managed-meta"><span className={`priority-badge ${routine.priority}`}>{routine.priority === "required" ? "必ずやる" : "できればやる"}</span><span>{dayText(routine.daysOfWeek)}</span><span>開始 {formatShortDate(routine.startDate)}</span></div>
       </div>
       <div className="managed-actions">
+        <Link className="text-btn" href={`/calendar?routine=${encodeURIComponent(routine.id)}`}><Icon name="calendar" size={13} /> 履歴</Link>
         {routine.isActive ? <><button className="text-btn" type="button" onClick={onEdit}><Icon name="edit" size={13} /> 編集</button><button className="text-btn danger" type="button" onClick={onDeactivate}><Icon name="pause" size={13} /> 無効化</button></> : <button className="text-btn" type="button" onClick={onReactivate}><Icon name="play" size={13} /> 再開</button>}
       </div>
     </div>

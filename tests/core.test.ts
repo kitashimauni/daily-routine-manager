@@ -4,7 +4,7 @@ import { assertAuthRateLimit, getClientIp } from "@/lib/auth-rate-limit";
 import { getCurrentUser, loginUser, logoutUser, registerUser, removeExpiredSessions } from "@/lib/auth";
 import { routineLogs, routineRevisions, routines, sessions, users } from "@/lib/db/schema";
 import { isValidDateKey } from "@/lib/date";
-import { getDailyRoutinesForDate } from "@/lib/routine-view";
+import { getDailyRoutinesForDate, routineForDate } from "@/lib/routine-view";
 import { createRoutineForUser, deactivateRoutineForUser, parseRoutineInput, reactivateRoutineForUser, setRoutineLog, updateRoutineForUser } from "@/lib/routine-service";
 import { assertSafeTestDatabaseUrl } from "@/scripts/test-database-safety.mjs";
 import { testDb, testSql } from "@/tests/setup";
@@ -94,6 +94,8 @@ describe("routine views and revision boundaries", () => {
     expect(editedDay.optional.map(({ routine }) => routine.content)).toEqual(["新しい木曜の記録"]);
     const editedFriday = getDailyRoutinesForDate([edited], {}, "2026-01-16");
     expect(editedFriday.optional.map(({ routine }) => routine.content)).toEqual(["新しい木曜の記録"]);
+    expect(routineForDate(edited, "2026-01-14")).toMatchObject({ content: "木曜の記録", priority: "required" });
+    expect(routineForDate(edited, TEST_TODAY)).toMatchObject({ content: "新しい木曜の記録", priority: "optional" });
   });
 
   it("replaces an unstarted future revision instead of leaving stale future history", async () => {
@@ -159,6 +161,8 @@ describe("routine logs and user isolation", () => {
     await expect(setRoutineLog(user.id, routine.id, "2026-01-16", false)).rejects.toMatchObject({ status: 400 });
     const deactivated = await deactivateRoutineForUser(user.id, routine.id);
     expect(deactivated.isActive).toBe(false);
+    expect(routineForDate(deactivated, TEST_TODAY)).toMatchObject({ content: "木曜だけの記録" });
+    expect(routineForDate(deactivated, "2026-01-22")).toBeNull();
     await expect(setRoutineLog(user.id, routine.id, "2026-01-16", true)).rejects.toMatchObject({ status: 400 });
     expect(await setRoutineLog(user.id, routine.id, TEST_TODAY, true)).not.toBeNull();
     const reactivated = await reactivateRoutineForUser(user.id, routine.id);
