@@ -31,7 +31,7 @@ Windowsでmise本体が未導入の場合は、先に `scoop install mise` ま�
 
 本番構成はDocker self-hostです。アプリとPostgreSQLは`compose.prod.yaml`で管理し、外部のHTTPS reverse proxyだけをInternetの入口にします。`app`はDocker network上の`3000`だけで待ち受け、PostgreSQLはhostへ公開しません。Productionは`main`のcommit、Previewは検証用の別DBとrelease情報を指定して起動します。設定の詳細と初回セットアップ、migration、バックアップ、復旧、smoke testは[`docs/release-runbook.md`](docs/release-runbook.md)を参照してください。
 
-Productionのdeployは、`main`のcleanなGit worktreeから`mise exec -- pnpm release:production`を実行します。スクリプトが`git rev-parse HEAD`からcommit SHAを導出し、同じsourceをDocker build contextにして、SHA付きimage tagと`/api/health`のrelease metadataへ注入します。rollbackは`--rollback <commit-or-tag>`で対象commitの一時detached worktreeを作成するため、現在のコードへ過去SHAだけを設定することはできません。image buildにはDB変更を含めず、one-shotの`migrate` serviceで環境検証とmigrationを実行してから`app`を起動します。migrationが失敗した場合はappを起動しません。稼働中のcommit、version、環境は`GET /api/health`で確認できます。
+Productionのdeployは、`main`のcleanなGit worktreeから`mise exec -- pnpm release:production`を実行します。スクリプトが`git rev-parse HEAD`からcommit SHAを導出し、同じsourceをDocker build contextにして、SHA付きimage tagと`/api/health`のrelease metadataへ注入します。rollbackは`--rollback <commit-or-tag>`で対象commitの一時detached worktreeを作成するため、現在のコードへ過去SHAだけを設定することはできません。image buildにはDB変更を含めず、one-shotの`migrate` serviceで環境検証とmigrationを実行してから`app`を起動します。migrationが失敗した場合はappを起動しません。appのDocker healthcheckがhealthyになり、`/api/health`のrelease SHAが起動対象commitと一致した後だけdeploy成功として終了します。稼働中のcommit、version、環境は`GET /api/health`で確認できます。
 
 ```bash
 mise exec -- pnpm release:production -- --compose-env-file .env.production
@@ -95,6 +95,7 @@ docker compose -f compose.test.yaml down --volumes
 mise exec -- pnpm exec tsc --noEmit
 mise exec -- pnpm lint
 mise exec -- pnpm test
+mise exec -- pnpm test:release-health
 mise exec -- pnpm test:release-security
 mise exec -- pnpm build
 mise exec -- pnpm test:e2e

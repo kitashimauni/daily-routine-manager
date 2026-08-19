@@ -66,6 +66,9 @@ jobs:
       - name: Test release secret redaction
         run: mise exec -- pnpm test:release-security
 
+      - name: Test release health verification
+        run: mise exec -- pnpm test:release-health
+
       - name: Build production app image
         run: >-
           docker build --target runner --tag daily-routine-manager:ci
