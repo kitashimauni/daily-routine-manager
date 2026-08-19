@@ -162,6 +162,76 @@ test("registers, records, edits, disables, and restores an isolated routine flow
   await expect(page.getByText("E2Eで編集後")).toHaveCount(0);
 });
 
+test("keeps Today date navigation stable for past and future dates", async ({ page }) => {
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-date-navigation-${unique}@example.com`;
+  const password = "correct-horse-battery-staple";
+  const todayDate = dateKey(new Date());
+  const pastDate = addDays(todayDate, -1);
+  const futureDate = addDays(todayDate, 1);
+
+  await register(page, email, password);
+  await createRoutine(page, "日付ナビゲーション");
+  await page.goto("/");
+
+  const previousButton = page.getByRole("button", { name: "前の日" });
+  const nextButton = page.getByRole("button", { name: "次の日" });
+  const initialPreviousBox = await previousButton.boundingBox();
+  const initialNextBox = await nextButton.boundingBox();
+  expect(initialPreviousBox).not.toBeNull();
+  expect(initialNextBox).not.toBeNull();
+  await expect(page.getByText("TODAY")).toBeVisible();
+
+  await nextButton.click();
+  await expect(page).toHaveURL(new RegExp(`\\?date=${futureDate}$`));
+  await expect(page.getByRole("button", { name: "今日に戻る" })).toBeVisible();
+  await expect(page.locator(".read-only-note")).toBeVisible();
+  await expect(page.getByRole("button", { name: "日付ナビゲーションを完了にする" })).toBeDisabled();
+
+  const futurePreviousBox = await previousButton.boundingBox();
+  const futureNextBox = await nextButton.boundingBox();
+  expect(futurePreviousBox).not.toBeNull();
+  expect(futureNextBox).not.toBeNull();
+  expect(Math.abs(futurePreviousBox!.x - initialPreviousBox!.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(futureNextBox!.x - initialNextBox!.x)).toBeLessThanOrEqual(1);
+
+  await page.getByRole("button", { name: "今日に戻る" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByText("TODAY")).toBeVisible();
+  const restoredPreviousBox = await previousButton.boundingBox();
+  const restoredNextBox = await nextButton.boundingBox();
+  expect(restoredPreviousBox).not.toBeNull();
+  expect(restoredNextBox).not.toBeNull();
+  expect(Math.abs(restoredPreviousBox!.x - initialPreviousBox!.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(restoredNextBox!.x - initialNextBox!.x)).toBeLessThanOrEqual(1);
+
+  await page.goto(`/?date=${pastDate}`);
+  await expect(page.getByRole("button", { name: "今日に戻る" })).toBeVisible();
+  await expect(page.locator(".read-only-note")).toBeHidden();
+  await expect(page.getByText("日付ナビゲーション")).toBeVisible();
+
+  const pastPreviousBox = await previousButton.boundingBox();
+  const pastNextBox = await nextButton.boundingBox();
+  expect(pastPreviousBox).not.toBeNull();
+  expect(pastNextBox).not.toBeNull();
+  expect(Math.abs(pastPreviousBox!.x - initialPreviousBox!.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(pastNextBox!.x - initialNextBox!.x)).toBeLessThanOrEqual(1);
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto(`/?date=${futureDate}`);
+  await expect(page.getByRole("button", { name: "今日に戻る" })).toBeVisible();
+  await expect(page.locator(".read-only-note")).toBeVisible();
+  const mobileToolbarBox = await page.locator(".date-toolbar").boundingBox();
+  const mobileNavBox = await page.locator(".date-nav").boundingBox();
+  const mobileActionsBox = await page.locator(".date-toolbar-actions").boundingBox();
+  expect(mobileToolbarBox).not.toBeNull();
+  expect(mobileNavBox).not.toBeNull();
+  expect(mobileActionsBox).not.toBeNull();
+  expect(mobileNavBox!.x).toBeGreaterThanOrEqual(0);
+  expect(mobileNavBox!.x + mobileNavBox!.width).toBeLessThanOrEqual(375);
+  expect(mobileActionsBox!.x + mobileActionsBox!.width).toBeLessThanOrEqual(375);
+});
+
 test("clears stale routine data after an authenticated API returns 401", async ({ page }) => {
   const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const email = `e2e-session-${unique}@example.com`;
