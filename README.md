@@ -95,12 +95,13 @@ docker compose -f compose.test.yaml down --volumes
 mise exec -- pnpm exec tsc --noEmit
 mise exec -- pnpm lint
 mise exec -- pnpm test
+mise exec -- pnpm test:release-security
 mise exec -- pnpm build
 mise exec -- pnpm test:e2e
 mise exec -- pnpm db:check
 mise exec -- pnpm audit --audit-level high
 mise exec -- pnpm verify:deploy
-docker compose --profile ops --env-file .env.production.example -f compose.prod.yaml config
+docker compose --profile ops --env-file .env.production.example -f compose.prod.yaml config --quiet
 docker build --target runner --tag daily-routine-manager:ci --build-arg RELEASE_VERSION=0.1.0 --build-arg RELEASE_COMMIT_SHA=local --build-arg RELEASE_BRANCH=local .
 docker build --target migrate --tag daily-routine-manager:migrate-ci .
 ```

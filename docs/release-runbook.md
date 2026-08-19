@@ -85,7 +85,13 @@ test -z "$(git status --porcelain)"
 mise exec -- pnpm release:production -- --compose-env-file .env.production
 ```
 
-`release:production`がcleanな`main` worktreeを検証し、`git rev-parse HEAD`でrelease SHAを導出してから、同じworktreeをComposeのbuild contextに指定する。Composeのapp imageは`daily-routine-manager:<commit-sha>`、migrate imageは`daily-routine-manager-migrate:<commit-sha>`として作成される。`config`の出力で`ports`がapp / postgresに存在しないこと、`DATABASE_URL`がProduction接続先であることを確認する。
+`release:production`がcleanな`main` worktreeを検証し、`git rev-parse HEAD`でrelease SHAを導出してから、同じworktreeをComposeのbuild contextに指定する。Composeのapp imageは`daily-routine-manager:<commit-sha>`、migrate imageは`daily-routine-manager-migrate:<commit-sha>`として作成される。Compose validationは`config --quiet`で構文と必須変数だけを検証し、展開済みの`DATABASE_URL`や`POSTGRES_PASSWORD`を標準出力へ表示しない。ネットワークや`ports`の設定は、レビュー済みの`compose.prod.yaml`とCIの検証で確認する。
+
+`release:production`のvalidationが失敗した場合も、Composeの標準エラーをそのまま再出力せず、secretがログへ混入しないようにする。sentinel secretを使った回帰検証は次で実行する。
+
+```bash
+mise exec -- pnpm test:release-security
+```
 
 起動順序は次のとおりである。
 

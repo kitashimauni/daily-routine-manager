@@ -14,6 +14,7 @@
     "test": "node scripts/run-test.mjs",
     "test:e2e": "node scripts/run-e2e.mjs",
     "smoke": "node scripts/smoke-test.mjs",
+    "test:release-security": "node scripts/test-release-security.mjs",
     "verify:deploy": "node scripts/verify-deploy-env.mjs",
     "release:production": "node scripts/deploy-production.mjs",
     "db:migrate:deploy": "node scripts/migrate-production.mjs",
