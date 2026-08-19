@@ -300,6 +300,68 @@ test("clears stale routine data when Settings import returns 401", async ({ page
   await expect(page.locator(".auth-error")).toContainText("セッションの有効期限が切れました");
 });
 
+test("logs out from Settings on desktop and mobile", async ({ page }) => {
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-settings-logout-${unique}@example.com`;
+  const password = "correct-horse-battery-staple";
+
+  await register(page, email, password);
+  await createRoutine(page, "Settingsログアウト対象");
+  await page.getByRole("link", { name: "Settings" }).click();
+
+  const account = page.locator(".settings-account");
+  await expect(account.getByText(email)).toBeVisible();
+  await expect(account.getByRole("button", { name: "ログアウト" })).toBeVisible();
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  const logoutButton = account.getByRole("button", { name: "ログアウト" });
+  await expect(logoutButton).toBeVisible();
+  let releaseLogout: (() => void) | undefined;
+  let requestStartedResolve = () => {};
+  const requestStarted = new Promise<void>((resolve) => {
+    requestStartedResolve = resolve;
+  });
+  await page.route("**/api/auth/logout", async (route) => {
+    await new Promise<void>((resolve) => {
+      releaseLogout = resolve;
+      requestStartedResolve();
+    });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
+  });
+  const logoutClick = logoutButton.click();
+  await expect(logoutButton).toBeDisabled();
+  await expect(logoutButton).toHaveText("ログアウト中…");
+  await requestStarted;
+  releaseLogout?.();
+  await logoutClick;
+  await expect(page.getByRole("heading", { name: "ログイン" })).toBeVisible();
+  await expect(page.getByText("Settingsログアウト対象")).toHaveCount(0);
+});
+
+test("keeps the account signed in when Settings logout fails", async ({ page }) => {
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-settings-logout-error-${unique}@example.com`;
+  const password = "correct-horse-battery-staple";
+
+  await register(page, email, password);
+  await createRoutine(page, "ログアウト失敗時も残るRoutine");
+  await page.getByRole("link", { name: "Settings" }).click();
+  await page.route("**/api/auth/logout", async (route) => {
+    await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "ログアウトに失敗しました。" }) });
+  });
+
+  const account = page.locator(".settings-account");
+  const logoutButton = account.getByRole("button", { name: "ログアウト" });
+  await logoutButton.click();
+  await expect(page.getByRole("heading", { name: "データ管理" })).toBeVisible();
+  await expect(account.getByText(email)).toBeVisible();
+  await expect(page.locator(".app-error")).toContainText("ログアウトに失敗しました。");
+  await expect(logoutButton).toBeEnabled();
+
+  await page.getByRole("link", { name: "Routines" }).click();
+  await expect(page.getByText("ログアウト失敗時も残るRoutine")).toBeVisible();
+});
+
 test("keeps the edited form mounted while retrying a failed save", async ({ page }) => {
   const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const email = `e2e-retry-${unique}@example.com`;

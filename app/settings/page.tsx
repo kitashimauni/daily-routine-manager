@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { LogoutButton } from "@/components/logout-button";
 import { useRoutines } from "@/lib/routine-context";
 
 const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
@@ -17,7 +18,7 @@ function responseError(body: unknown) {
 }
 
 export default function SettingsPage() {
-  const { authenticatedFetch, retry } = useRoutines();
+  const { authenticatedFetch, retry, user } = useRoutines();
   const inputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
@@ -122,6 +123,15 @@ export default function SettingsPage() {
           <p className="field-hint">不正なファイルは検証で拒否され、既存データは変更されません。</p>
         </section>
       </div>
+      <section className="settings-account card">
+        <div>
+          <p className="eyebrow">Account</p>
+          <h2>アカウント</h2>
+          <p className="settings-account-copy">現在ログインしているアカウント</p>
+          <p className="settings-account-email">{user?.email}</p>
+        </div>
+        <LogoutButton className="btn btn-danger settings-logout" />
+      </section>
       {error && <p className="data-message error" role="alert">{error}</p>}
       {status && <p className="data-message success" role="status">{status}</p>}
     </div>

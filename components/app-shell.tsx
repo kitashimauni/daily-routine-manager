@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { AuthPanel } from "@/components/auth-panel";
+import { LogoutButton } from "@/components/logout-button";
 import { useRoutines } from "@/lib/routine-context";
 
 const navigation = [
@@ -20,7 +21,7 @@ function isActive(pathname: string, href: string) {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { authHydrated, error, logout, retry, user } = useRoutines();
+  const { authHydrated, error, retry, user } = useRoutines();
   if (!authHydrated) return <div className="auth-shell"><div className="auth-card card"><div className="skeleton" /></div></div>;
   if (!user) return <AuthPanel />;
 
@@ -44,7 +45,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
         <div className="account-panel">
           <span className="account-email">{user.email}</span>
-          <button className="account-logout" type="button" onClick={() => void logout()}>ログアウト</button>
+          <LogoutButton className="account-logout" />
         </div>
         <p className="side-bottom">small steps,<br />steady days.</p>
       </aside>
