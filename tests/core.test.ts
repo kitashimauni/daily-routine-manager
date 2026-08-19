@@ -4,7 +4,7 @@ import { assertAuthRateLimit, getClientIp } from "@/lib/auth-rate-limit";
 import { getCurrentUser, loginUser, logoutUser, registerUser, removeExpiredSessions } from "@/lib/auth";
 import { routineLogs, routineRevisions, routines, sessions, users } from "@/lib/db/schema";
 import { isValidDateKey } from "@/lib/date";
-import { getDailyRoutinesForDate, routineForDate } from "@/lib/routine-view";
+import { getDailyRoutinesForDate, isRoutineEnded, routineForDate } from "@/lib/routine-view";
 import { createRoutineForUser, deactivateRoutineForUser, parseRoutineInput, reactivateRoutineForUser, setRoutineLog, updateRoutineForUser } from "@/lib/routine-service";
 import { assertSafeTestDatabaseUrl } from "@/scripts/test-database-safety.mjs";
 import { testDb, testSql } from "@/tests/setup";
@@ -126,6 +126,66 @@ describe("routine views and revision boundaries", () => {
     expect(replaced.revisions).toHaveLength(2);
     expect(replaced.revisions.map((revision) => revision.content)).not.toContain("未来の古い記録");
     expect(replaced.revisions.find((revision) => revision.startDate === "2026-01-20")).toMatchObject({ content: "未来の新しい記録", priority: "optional" });
+  });
+});
+
+describe("ended routines", () => {
+  it("keeps an ended routine ended when edited, preserves history, and resumes only explicitly", async () => {
+    const user = await createTestUser();
+    const routine = await createRoutineForUser(user.id, {
+      content: "終了前の記録",
+      priority: "required",
+      daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+      startDate: "2026-01-01",
+      endDate: "2026-01-10",
+      isActive: true,
+    });
+    await setRoutineLog(user.id, routine.id, "2026-01-08", true);
+
+    const edited = await updateRoutineForUser(user.id, routine.id, {
+      content: "終了後に編集した記録",
+      priority: "optional",
+      daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+      startDate: "2026-01-01",
+      isActive: true,
+    });
+    expect(edited).toMatchObject({ content: "終了後に編集した記録", priority: "optional", endDate: "2026-01-10", isActive: true });
+    expect(edited.revisions).toHaveLength(1);
+    expect(edited.revisions[0]).toMatchObject({ content: "終了前の記録", endDate: "2026-01-10" });
+    expect(isRoutineEnded(edited, TEST_TODAY)).toBe(true);
+
+    const previousDay = getDailyRoutinesForDate([edited], { [`${routine.id}__2026-01-08`]: { id: "log", routineId: routine.id, date: "2026-01-08", createdAt: "", updatedAt: "" } }, "2026-01-08");
+    expect(previousDay.required[0]?.routine.content).toBe("終了前の記録");
+    expect(previousDay.required[0]?.completed).toBe(true);
+    expect(getDailyRoutinesForDate([edited], {}, TEST_TODAY).required).toHaveLength(0);
+
+    const resumed = await reactivateRoutineForUser(user.id, routine.id);
+    expect(resumed).toMatchObject({ content: "終了後に編集した記録", priority: "optional", isActive: true });
+    expect(resumed.revisions.at(-1)).toMatchObject({ content: "終了後に編集した記録", startDate: TEST_TODAY, endDate: undefined, isActive: true });
+    expect(getDailyRoutinesForDate([resumed], {}, TEST_TODAY).optional[0]?.routine.content).toBe("終了後に編集した記録");
+  });
+
+  it("allows an explicit end-date extension to resume future scheduling", async () => {
+    const user = await createTestUser();
+    const routine = await createRoutineForUser(user.id, {
+      content: "延長前の記録",
+      priority: "required",
+      daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+      startDate: "2026-01-01",
+      endDate: "2026-01-10",
+      isActive: true,
+    });
+
+    const extended = await updateRoutineForUser(user.id, routine.id, {
+      content: "延長後の記録",
+      priority: "required",
+      daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+      startDate: "2026-01-01",
+      endDate: "2026-01-20",
+      isActive: true,
+    });
+    expect(extended.revisions.at(-1)).toMatchObject({ content: "延長後の記録", startDate: TEST_TODAY, endDate: "2026-01-20", isActive: true });
+    expect(getDailyRoutinesForDate([extended], {}, "2026-01-16").required[0]?.routine.content).toBe("延長後の記録");
   });
 });
 

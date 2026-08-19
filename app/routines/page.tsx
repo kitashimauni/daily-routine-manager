@@ -5,18 +5,20 @@ import Link from "next/link";
 import { Icon } from "@/components/icon";
 import { formatShortDate, getTodayDate, WEEKDAYS } from "@/lib/date";
 import { useRoutines, type RoutineInput } from "@/lib/routine-context";
+import { isRoutineEnded } from "@/lib/routine-view";
 import type { Priority, Routine } from "@/lib/types";
 
 type RoutineFormInput = Omit<RoutineInput, "isActive">;
 
 interface RoutineFormProps {
   routine?: Routine;
+  ended?: boolean;
   onSubmit: (input: RoutineFormInput) => Promise<void>;
   onCancel?: () => void;
   submitLabel?: string;
 }
 
-function RoutineForm({ routine, onSubmit, onCancel, submitLabel = "追加する" }: RoutineFormProps) {
+function RoutineForm({ routine, ended = false, onSubmit, onCancel, submitLabel = "追加する" }: RoutineFormProps) {
   const [content, setContent] = useState(routine?.content ?? "");
   const [priority, setPriority] = useState<Priority>(routine?.priority ?? "required");
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>(routine?.daysOfWeek ?? [1, 2, 3, 4, 5]);
@@ -72,6 +74,7 @@ function RoutineForm({ routine, onSubmit, onCancel, submitLabel = "追加する"
           <input aria-label="終了日（任意）" className="date-input" type="date" value={endDate} min={startDate} onChange={(event) => setEndDate(event.target.value)} />
         </div>
         <p className="field-hint">開始日　　終了日（任意）</p>
+        {ended && <p className="field-hint ended-form-hint">終了済みです。内容だけの変更では再開しません。延長する場合は終了日を未来の日付へ変更するか、再開を選択してください。</p>}
       </div>
       <div className="form-actions">
         {onCancel && <button type="button" className="btn btn-ghost" disabled={submitting} onClick={onCancel}>キャンセル</button>}
@@ -85,16 +88,16 @@ function dayText(days: number[]) {
   return days.length === 7 ? "毎日" : days.map((day) => WEEKDAYS[day]).join("・");
 }
 
-function ManagedRoutine({ routine, onEdit, onDeactivate, onReactivate }: { routine: Routine; onEdit: () => void; onDeactivate: () => void; onReactivate: () => void }) {
+function ManagedRoutine({ routine, ended, onEdit, onDeactivate, onReactivate }: { routine: Routine; ended: boolean; onEdit: () => void; onDeactivate: () => void; onReactivate: () => void }) {
   return (
     <div className="managed-row">
       <div className="managed-main">
         <div className="managed-content">{routine.content}</div>
-        <div className="managed-meta"><span className={`priority-badge ${routine.priority}`}>{routine.priority === "required" ? "必ずやる" : "できればやる"}</span><span>{dayText(routine.daysOfWeek)}</span><span>開始 {formatShortDate(routine.startDate)}</span></div>
+        <div className="managed-meta"><span className={`priority-badge ${routine.priority}`}>{routine.priority === "required" ? "必ずやる" : "できればやる"}</span>{ended && <span className="routine-status-badge ended">終了済み</span>}<span>{dayText(routine.daysOfWeek)}</span><span>開始 {formatShortDate(routine.startDate)}</span>{routine.endDate && <span>終了 {formatShortDate(routine.endDate)}</span>}</div>
       </div>
       <div className="managed-actions">
         <Link className="text-btn" href={`/calendar?routine=${encodeURIComponent(routine.id)}`}><Icon name="calendar" size={13} /> 履歴</Link>
-        {routine.isActive ? <><button className="text-btn" type="button" onClick={onEdit}><Icon name="edit" size={13} /> 編集</button><button className="text-btn danger" type="button" onClick={onDeactivate}><Icon name="pause" size={13} /> 無効化</button></> : <button className="text-btn" type="button" onClick={onReactivate}><Icon name="play" size={13} /> 再開</button>}
+        {ended ? <><button className="text-btn" type="button" onClick={onEdit}><Icon name="edit" size={13} /> 編集</button><button className="text-btn" type="button" onClick={onReactivate}><Icon name="play" size={13} /> 再開</button></> : routine.isActive ? <><button className="text-btn" type="button" onClick={onEdit}><Icon name="edit" size={13} /> 編集</button><button className="text-btn danger" type="button" onClick={onDeactivate}><Icon name="pause" size={13} /> 無効化</button></> : <button className="text-btn" type="button" onClick={onReactivate}><Icon name="play" size={13} /> 再開</button>}
       </div>
     </div>
   );
@@ -105,9 +108,11 @@ export default function RoutinesPage() {
   const [editing, setEditing] = useState<Routine | null>(null);
 
   if (!hydrated) return <div className="page-wrap"><div className="skeleton" /></div>;
+  const today = getTodayDate();
   const isEmpty = routines.length === 0;
-  const activeRequired = routines.filter((routine) => routine.isActive && routine.priority === "required");
-  const activeOptional = routines.filter((routine) => routine.isActive && routine.priority === "optional");
+  const activeRequired = routines.filter((routine) => routine.isActive && !isRoutineEnded(routine, today) && routine.priority === "required");
+  const activeOptional = routines.filter((routine) => routine.isActive && !isRoutineEnded(routine, today) && routine.priority === "optional");
+  const ended = routines.filter((routine) => isRoutineEnded(routine, today));
   const inactive = routines.filter((routine) => !routine.isActive);
 
   const disable = (routine: Routine) => {
@@ -129,17 +134,18 @@ export default function RoutinesPage() {
         <div className="routine-list">
           <section className="card management-section">
             <div className="section-head"><h2 className="section-title">必ずやる</h2><span className="section-count">{activeRequired.length}件</span></div>
-            {activeRequired.length === 0 ? <p className="routine-empty">まだ登録されていません。</p> : activeRequired.map((routine) => <ManagedRoutine key={routine.id} routine={routine} onEdit={() => setEditing(routine)} onDeactivate={() => disable(routine)} onReactivate={() => reactivateRoutine(routine.id)} />)}
+            {activeRequired.length === 0 ? <p className="routine-empty">まだ登録されていません。</p> : activeRequired.map((routine) => <ManagedRoutine key={routine.id} routine={routine} ended={false} onEdit={() => setEditing(routine)} onDeactivate={() => disable(routine)} onReactivate={() => reactivateRoutine(routine.id)} />)}
           </section>
           <section className="card management-section">
             <div className="section-head"><h2 className="section-title" style={{ color: "var(--blue)" }}>できればやる</h2><span className="section-count">{activeOptional.length}件</span></div>
-            {activeOptional.length === 0 ? <p className="routine-empty">まだ登録されていません。</p> : activeOptional.map((routine) => <ManagedRoutine key={routine.id} routine={routine} onEdit={() => setEditing(routine)} onDeactivate={() => disable(routine)} onReactivate={() => reactivateRoutine(routine.id)} />)}
+            {activeOptional.length === 0 ? <p className="routine-empty">まだ登録されていません。</p> : activeOptional.map((routine) => <ManagedRoutine key={routine.id} routine={routine} ended={false} onEdit={() => setEditing(routine)} onDeactivate={() => disable(routine)} onReactivate={() => reactivateRoutine(routine.id)} />)}
           </section>
-          {inactive.length > 0 && <section className="card management-section inactive-section"><div className="section-head"><h2 className="section-title">無効化中</h2><span className="section-count">{inactive.length}件</span></div>{inactive.map((routine) => <ManagedRoutine key={routine.id} routine={routine} onEdit={() => setEditing(routine)} onDeactivate={() => disable(routine)} onReactivate={() => reactivateRoutine(routine.id)} />)}</section>}
+          {ended.length > 0 && <section className="card management-section ended-section"><div className="section-head"><h2 className="section-title">終了済み</h2><span className="section-count">{ended.length}件</span></div>{ended.map((routine) => <ManagedRoutine key={routine.id} routine={routine} ended onEdit={() => setEditing(routine)} onDeactivate={() => disable(routine)} onReactivate={() => reactivateRoutine(routine.id)} />)}</section>}
+          {inactive.length > 0 && <section className="card management-section inactive-section"><div className="section-head"><h2 className="section-title">無効化中</h2><span className="section-count">{inactive.length}件</span></div>{inactive.map((routine) => <ManagedRoutine key={routine.id} routine={routine} ended={false} onEdit={() => setEditing(routine)} onDeactivate={() => disable(routine)} onReactivate={() => reactivateRoutine(routine.id)} />)}</section>}
         </div>
       </div>
 
-      {editing && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditing(null); }}><div className="modal card" role="dialog" aria-modal="true" aria-label="ルーティーンを編集"><div className="modal-head"><h2>ルーティーンを編集</h2><button className="icon-btn" type="button" aria-label="閉じる" onClick={() => setEditing(null)}><Icon name="x" size={17} /></button></div><RoutineForm routine={editing} submitLabel="変更を保存" onCancel={() => setEditing(null)} onSubmit={async (input) => { await updateRoutine(editing.id, { ...input, isActive: editing.isActive }); setEditing(null); }} /></div></div>}
+      {editing && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditing(null); }}><div className="modal card" role="dialog" aria-modal="true" aria-label="ルーティーンを編集"><div className="modal-head"><h2>ルーティーンを編集</h2><button className="icon-btn" type="button" aria-label="閉じる" onClick={() => setEditing(null)}><Icon name="x" size={17} /></button></div><RoutineForm routine={editing} ended={isRoutineEnded(editing, today)} submitLabel="変更を保存" onCancel={() => setEditing(null)} onSubmit={async (input) => { await updateRoutine(editing.id, { ...input, isActive: editing.isActive }); setEditing(null); }} /></div></div>}
     </div>
   );
 }

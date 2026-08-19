@@ -4,6 +4,7 @@ import { getDatabase } from "@/lib/db";
 import { routineLogs, routineRevisions, routines } from "@/lib/db/schema";
 import { getDayOfWeek, isValidDateKey } from "@/lib/date";
 import { addDateDays, getServerTodayDate } from "@/lib/server-date";
+import { isRoutineEnded } from "@/lib/routine-view";
 import type { Routine, RoutineInput, RoutineLog, RoutineLogs, RoutineRevision } from "@/lib/types";
 
 export class RoutineServiceError extends Error {
@@ -71,6 +72,18 @@ function inputFromRevision(revision: RoutineRevision, overrides: Partial<Routine
     startDate: revision.startDate,
     endDate: revision.endDate,
     isActive: revision.isActive,
+    ...overrides,
+  };
+}
+
+function inputFromRoutine(routine: Routine, overrides: Partial<RoutineInput> = {}): RoutineInput {
+  return {
+    content: routine.content,
+    priority: routine.priority,
+    daysOfWeek: routine.daysOfWeek,
+    startDate: routine.startDate,
+    endDate: routine.endDate,
+    isActive: routine.isActive,
     ...overrides,
   };
 }
@@ -146,6 +159,19 @@ async function replaceRoutine(userId: string, routine: Routine) {
   });
 }
 
+async function updateRoutineSummary(userId: string, routine: Routine) {
+  const db = getDatabase();
+  await db.update(routines).set({
+    content: routine.content,
+    priority: routine.priority,
+    daysOfWeek: routine.daysOfWeek,
+    startDate: routine.startDate,
+    endDate: routine.endDate ?? null,
+    isActive: routine.isActive,
+    updatedAt: routine.updatedAt,
+  }).where(and(eq(routines.id, routine.id), eq(routines.userId, userId)));
+}
+
 export async function createRoutineForUser(userId: string, input: RoutineInput) {
   const timestamp = new Date().toISOString();
   const routineId = randomUUID();
@@ -158,13 +184,21 @@ export async function createRoutineForUser(userId: string, input: RoutineInput) 
   return (await findRoutine(userId, routineId)).routine;
 }
 
-export async function updateRoutineForUser(userId: string, routineId: string, input: RoutineInput) {
+export async function updateRoutineForUser(userId: string, routineId: string, input: RoutineInput, options: { allowEndedResume?: boolean } = {}) {
   const { routine } = await findRoutine(userId, routineId);
   const today = getServerTodayDate();
+  const timestamp = new Date().toISOString();
+  const keepsEnded = !input.endDate || input.endDate < today;
+  const startsInFuture = input.startDate > today;
+  if (isRoutineEnded(routine, today) && !options.allowEndedResume && keepsEnded && !startsInFuture) {
+    const endedRoutine = { ...routine, ...input, endDate: input.endDate ?? routine.endDate, updatedAt: timestamp };
+    await updateRoutineSummary(userId, endedRoutine);
+    return (await findRoutine(userId, routineId)).routine;
+  }
   const deactivating = routine.isActive && !input.isActive;
   const effectiveDate = deactivating ? addDateDays(today, 1) : input.startDate > today ? input.startDate : today;
   const nextInput = deactivating ? { ...input, startDate: effectiveDate, endDate: undefined } : input;
-  const nextRoutine = withNewRevision(routine, nextInput, effectiveDate, new Date().toISOString());
+  const nextRoutine = withNewRevision(routine, nextInput, effectiveDate, timestamp);
   await replaceRoutine(userId, nextRoutine);
   return (await findRoutine(userId, routineId)).routine;
 }
@@ -175,13 +209,17 @@ export async function deactivateRoutineForUser(userId: string, routineId: string
   const today = getServerTodayDate();
   const currentRevision = revisionForDate(routine, today) ?? routine.revisions.at(-1);
   if (!currentRevision) throw new RoutineServiceError("ルーティーン履歴が見つかりません。", 500);
-  return updateRoutineForUser(userId, routineId, inputFromRevision(currentRevision, { isActive: false, startDate: addDateDays(today, 1), endDate: undefined }));
+  const currentInput = isRoutineEnded(routine, today) ? inputFromRoutine(routine) : inputFromRevision(currentRevision);
+  return updateRoutineForUser(userId, routineId, { ...currentInput, isActive: false, startDate: addDateDays(today, 1), endDate: undefined });
 }
 
 export async function reactivateRoutineForUser(userId: string, routineId: string) {
   const { routine } = await findRoutine(userId, routineId);
-  if (routine.isActive) return routine;
   const today = getServerTodayDate();
+  if (routine.isActive && !isRoutineEnded(routine, today)) return routine;
+  if (isRoutineEnded(routine, today)) {
+    return updateRoutineForUser(userId, routineId, inputFromRoutine(routine, { isActive: true, startDate: today, endDate: undefined }), { allowEndedResume: true });
+  }
   const currentRevision = revisionForDate(routine, today) ?? routine.revisions.at(-1);
   if (!currentRevision) throw new RoutineServiceError("ルーティーン履歴が見つかりません。", 500);
   return updateRoutineForUser(userId, routineId, inputFromRevision(currentRevision, { isActive: true, startDate: today, endDate: undefined }));
