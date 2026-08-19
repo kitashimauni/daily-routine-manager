@@ -61,7 +61,10 @@ jobs:
         run: mise exec -- pnpm build
 
       - name: Validate production Compose
-        run: docker compose --profile ops --env-file .env.production.example -f compose.prod.yaml config
+        run: docker compose --profile ops --env-file .env.production.example -f compose.prod.yaml config --quiet
+
+      - name: Test release secret redaction
+        run: mise exec -- pnpm test:release-security
 
       - name: Build production app image
         run: >-

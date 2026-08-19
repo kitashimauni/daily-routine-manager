@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const usage = `Usage:
@@ -26,7 +27,7 @@ function run(command, args, options = {}) {
 
   if (result.error) throw result.error;
   if (result.status !== 0) {
-    const details = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+    const details = options.includeErrorDetails === false ? "" : [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
     throw new Error(`${command} ${args.join(" ")} failed${details ? `:\n${details}` : "."}`);
   }
   return result.stdout?.trim() ?? "";
@@ -102,6 +103,10 @@ function createRollbackWorktree(repoRoot, rollbackRef) {
   return { targetSha, tempParent, worktreePath };
 }
 
+export function composeValidationArgs() {
+  return ["config", "--quiet"];
+}
+
 function runCompose(contextRoot, envFile, releaseSha) {
   const envFilePath = resolve(envFile);
   if (!existsSync(envFilePath)) {
@@ -116,14 +121,20 @@ function runCompose(contextRoot, envFile, releaseSha) {
     RELEASE_BRANCH: "main",
   };
 
+  const validationArgs = composeValidationArgs();
   for (const args of [
-    ["config"],
+    validationArgs,
     ["build", "app", "migrate"],
     ["up", "-d", "postgres"],
     ["run", "--rm", "migrate"],
     ["up", "-d", "--no-deps", "app"],
   ]) {
-    run("docker", [...composeArgs, ...args], { cwd: contextRoot, env: environment, inherit: true });
+    run("docker", [...composeArgs, ...args], {
+      cwd: contextRoot,
+      env: environment,
+      includeErrorDetails: args !== validationArgs,
+      inherit: args !== validationArgs,
+    });
   }
 }
 
@@ -166,4 +177,6 @@ function main() {
   }
 }
 
-main();
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  main();
+}
