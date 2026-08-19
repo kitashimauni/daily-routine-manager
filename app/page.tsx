@@ -95,6 +95,12 @@ export default function TodayPage() {
     window.history.replaceState(null, "", `/?date=${nextDate}`);
   };
 
+  const resetToToday = () => {
+    const todayDate = getTodayDate();
+    setDate(todayDate);
+    window.history.replaceState(null, "", "/");
+  };
+
   const handleToggle = async (routineId: string) => {
     if (pendingRoutineId) return;
     setPendingRoutineId(routineId);
@@ -125,11 +131,18 @@ export default function TodayPage() {
       <div className="date-toolbar">
         <div className="date-nav">
           <button className="icon-btn" type="button" aria-label="前の日" onClick={() => moveDate(-1)}><Icon name="chevron-left" /></button>
-          <h2 className="date-title">{formatDateLong(date)}</h2>
-          {today && <span className="today-chip">TODAY</span>}
+          <div className="date-nav-center">
+            <h2 className="date-title">{formatDateLong(date)}</h2>
+            <span className={`today-chip ${today ? "" : "date-toolbar-placeholder"}`} aria-hidden={!today}>TODAY</span>
+          </div>
           <button className="icon-btn" type="button" aria-label="次の日" onClick={() => moveDate(1)}><Icon name="chevron-right" /></button>
         </div>
-        {readOnly ? <span className="read-only-note"><Icon name="lock" size={13} /> 未来の日付は閲覧のみ</span> : !today ? <button className="btn btn-ghost" type="button" onClick={() => { setDate(getTodayDate()); window.history.replaceState(null, "", "/"); }}>今日に戻る</button> : null}
+        <div className="date-toolbar-actions">
+          <span className={`read-only-note ${readOnly ? "" : "date-toolbar-placeholder"}`} aria-hidden={!readOnly}>
+            <Icon name="lock" size={13} /> 未来の日付は閲覧のみ
+          </span>
+          <button className={`btn btn-ghost ${today ? "date-toolbar-placeholder" : ""}`} type="button" onClick={resetToToday} disabled={today} aria-hidden={today}>今日に戻る</button>
+        </div>
       </div>
 
       <section className="overview-card card">
