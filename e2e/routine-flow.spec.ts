@@ -176,11 +176,12 @@ test("keeps Today date navigation stable for past and future dates", async ({ pa
 
   const previousButton = page.getByRole("button", { name: "前の日" });
   const nextButton = page.getByRole("button", { name: "次の日" });
+  const todayChip = page.locator(".today-chip");
   const initialPreviousBox = await previousButton.boundingBox();
   const initialNextBox = await nextButton.boundingBox();
   expect(initialPreviousBox).not.toBeNull();
   expect(initialNextBox).not.toBeNull();
-  await expect(page.getByText("TODAY")).toBeVisible();
+  await expect(todayChip).toBeVisible();
 
   await nextButton.click();
   await expect(page).toHaveURL(new RegExp(`\\?date=${futureDate}$`));
@@ -197,7 +198,7 @@ test("keeps Today date navigation stable for past and future dates", async ({ pa
 
   await page.getByRole("button", { name: "今日に戻る" }).click();
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByText("TODAY")).toBeVisible();
+  await expect(todayChip).toBeVisible();
   const restoredPreviousBox = await previousButton.boundingBox();
   const restoredNextBox = await nextButton.boundingBox();
   expect(restoredPreviousBox).not.toBeNull();
