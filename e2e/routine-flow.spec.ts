@@ -355,9 +355,11 @@ test("keeps the account signed in when Settings logout fails", async ({ page }) 
   await logoutButton.click();
   await expect(page.getByRole("heading", { name: "データ管理" })).toBeVisible();
   await expect(account.getByText(email)).toBeVisible();
-  await expect(page.getByText("ログアウト失敗時も残るRoutine")).toBeVisible();
   await expect(page.locator(".app-error")).toContainText("ログアウトに失敗しました。");
   await expect(logoutButton).toBeEnabled();
+
+  await page.getByRole("link", { name: "Routines" }).click();
+  await expect(page.getByText("ログアウト失敗時も残るRoutine")).toBeVisible();
 });
 
 test("keeps the edited form mounted while retrying a failed save", async ({ page }) => {
