@@ -85,12 +85,13 @@ test -z "$(git status --porcelain)"
 mise exec -- pnpm release:production -- --compose-env-file .env.production
 ```
 
-`release:production`がcleanな`main` worktreeを検証し、`git rev-parse HEAD`でrelease SHAを導出してから、同じworktreeをComposeのbuild contextに指定する。Composeのapp imageは`daily-routine-manager:<commit-sha>`、migrate imageは`daily-routine-manager-migrate:<commit-sha>`として作成される。Compose validationは`config --quiet`で構文と必須変数だけを検証し、展開済みの`DATABASE_URL`や`POSTGRES_PASSWORD`を標準出力へ表示しない。ネットワークや`ports`の設定は、レビュー済みの`compose.prod.yaml`とCIの検証で確認する。
+`release:production`がcleanな`main` worktreeを検証し、`git rev-parse HEAD`でrelease SHAを導出してから、同じworktreeをComposeのbuild contextに指定する。Composeのapp imageは`daily-routine-manager:<commit-sha>`、migrate imageは`daily-routine-manager-migrate:<commit-sha>`として作成される。Compose validationは`config --quiet`で構文と必須変数だけを検証し、展開済みの`DATABASE_URL`や`POSTGRES_PASSWORD`を標準出力へ表示しない。ネットワークや`ports`の設定は、レビュー済みの`compose.prod.yaml`とCIの検証で確認する。app起動後はDocker healthcheckがhealthyになるまで待機し、`/api/health`のrelease SHAが対象commitと一致した場合だけ成功扱いにする。既定のhealth待機timeoutは120秒で、`RELEASE_HEALTH_TIMEOUT_SECONDS`と`RELEASE_HEALTH_POLL_INTERVAL_SECONDS`で調整できる。
 
 `release:production`のvalidationが失敗した場合も、Composeの標準エラーをそのまま再出力せず、secretがログへ混入しないようにする。sentinel secretを使った回帰検証は次で実行する。
 
 ```bash
 mise exec -- pnpm test:release-security
+mise exec -- pnpm test:release-health
 ```
 
 起動順序は次のとおりである。
@@ -100,6 +101,7 @@ Docker image build（DB変更なし）
   → postgres healthcheck
   → verify:deploy + db:migrate（migrate one-shot）
   → app起動
+  → Docker healthcheck healthy + `/api/health`のrelease SHA一致
   → HTTPS reverse proxy経由でsmoke test
 ```
 
@@ -161,7 +163,7 @@ docker run --rm --network routine-backend \
 
 ## Rollback
 
-- image / appだけの不具合: 現在のworktreeを変更せず、既知のmain上のcommitまたはtagから一時detached worktreeを作成してbuild・再起動する。スクリプトが対象commitの祖先関係、cleanな現在worktree、source SHAとDocker image / health metadataの一致を検証する。
+- image / appだけの不具合: 現在のworktreeを変更せず、既知のmain上のcommitまたはtagから一時detached worktreeを作成してbuild・再起動する。スクリプトが対象commitの祖先関係、cleanな現在worktree、source SHAとDocker image / health metadataの一致を検証し、Docker healthcheckと`/api/health`のrelease SHA確認が完了するまで成功扱いにしない。
 
 ```bash
 git fetch origin main

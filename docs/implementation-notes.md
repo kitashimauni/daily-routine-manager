@@ -25,5 +25,7 @@ Calendarは全体表示を既定とし、`?routine=<id>`または表示対象sel
 
 Production / PreviewのCompose validationは`config --quiet`を使い、展開済みの環境変数をログへ出力しない。validation失敗時もComposeの標準エラーをそのまま再出力せず、`DATABASE_URL`や`POSTGRES_PASSWORD`などのsecretをログへ漏らさない。`scripts/test-release-security.mjs`がsentinel secretを使って、正常系・必須変数欠落の異常系の双方を回帰検証する。
 
+Production / rollbackのdeployは、`app`起動後にDocker healthcheckがhealthyになるまで待機し、`/api/health`が`status: ok`を返し、対象release SHAと一致した場合だけ成功扱いにする。既定の待機timeoutは120秒で、`RELEASE_HEALTH_TIMEOUT_SECONDS`と`RELEASE_HEALTH_POLL_INTERVAL_SECONDS`で調整できる。`scripts/test-release-health.mjs`がhealthy遷移、unhealthy、timeout、release SHA不一致を回帰検証する。
+
 ユーザーデータのportabilityは`/api/data/export`と`/api/data/import`、`/settings`で提供する。exportはschema version付きで、現在のユーザーに所有されるRoutine / RoutineRevision / RoutineLogだけを含め、password hash / Session / 他ユーザー情報を含めない。exportの3テーブル取得はPostgreSQLのread-only `REPEATABLE READ` transaction内で行い、同一snapshotから一貫したファイルを生成する。importは現在のユーザーの3種類のデータを置換する方針とし、別アカウントへも読み込めるよう内部IDを再発行する。受け入れ前にschema・件数・参照整合性・日付・重複を検証し、DB反映はtransactionで行うため途中失敗時に既存データを残す。認証付きのexport/importはRoutineContextの共通fetch経路を利用し、401時はセッションを無効化してログイン画面へ復帰する。
 Settingsにはログイン中のメールアドレスと共通ログアウトボタンを表示し、PCサイドバーとモバイルのSettingsの両方から利用できます。ログアウトボタンは処理中の二重送信を防ぎ、API失敗時は認証状態と既存データを保持したまま共通エラー表示を行います。
