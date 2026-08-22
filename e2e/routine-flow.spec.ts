@@ -164,6 +164,33 @@ test("registers, records, edits, disables, and restores an isolated routine flow
   await expect(page.getByText("E2Eで編集後")).toHaveCount(0);
 });
 
+test("requires updatedAt for direct routine mutation requests", async ({ page }) => {
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-routine-version-${unique}@example.com`;
+  const password = "correct-horse-battery-staple";
+
+  await register(page, email, password);
+  await createRoutine(page, "API version validation");
+  const listResponse = await page.request.get("/api/routines");
+  expect(listResponse.ok()).toBeTruthy();
+  const data = await listResponse.json() as { routines: Array<{ id: string; content: string; priority: "required" | "optional"; daysOfWeek: number[]; startDate: string; endDate?: string; isActive: boolean; updatedAt: string }> };
+  const routine = data.routines[0];
+  expect(routine).toBeDefined();
+
+  const mutation = { content: routine.content, priority: routine.priority, daysOfWeek: routine.daysOfWeek, startDate: routine.startDate, endDate: routine.endDate, isActive: routine.isActive };
+  const missingVersion = await page.request.patch(`/api/routines/${routine.id}`, { data: mutation });
+  expect(missingVersion.status()).toBe(400);
+  const invalidVersion = await page.request.patch(`/api/routines/${routine.id}`, { data: { ...mutation, updatedAt: "not-a-timestamp" } });
+  expect(invalidVersion.status()).toBe(400);
+  const missingActionVersion = await page.request.post(`/api/routines/${routine.id}`, { data: { action: "deactivate" } });
+  expect(missingActionVersion.status()).toBe(400);
+
+  const firstUpdate = await page.request.patch(`/api/routines/${routine.id}`, { data: { ...mutation, content: "API version validation updated", updatedAt: routine.updatedAt } });
+  expect(firstUpdate.ok()).toBeTruthy();
+  const staleUpdate = await page.request.patch(`/api/routines/${routine.id}`, { data: { ...mutation, content: "stale API update", updatedAt: routine.updatedAt } });
+  expect(staleUpdate.status()).toBe(409);
+});
+
 test("keeps Today date navigation stable for past and future dates", async ({ page }) => {
   const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const email = `e2e-date-navigation-${unique}@example.com`;

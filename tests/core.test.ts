@@ -5,7 +5,7 @@ import { getCurrentUser, loginUser, logoutUser, registerUser, removeExpiredSessi
 import { routineLogs, routineRevisions, routines, sessions, users } from "@/lib/db/schema";
 import { getTodayDate, isValidDateKey } from "@/lib/date";
 import { getDailyRoutinesForDate, isRoutineEnded, routineForDate } from "@/lib/routine-view";
-import { createRoutineForUser, deactivateRoutineForUser, listRoutineData, parseRoutineInput, reactivateRoutineForUser, setRoutineLog, updateRoutineForUser } from "@/lib/routine-service";
+import { createRoutineForUser, deactivateRoutineForUser, listRoutineData, parseRoutineInput, parseRoutineMutationUpdatedAt, reactivateRoutineForUser, setRoutineLog, updateRoutineForUser } from "@/lib/routine-service";
 import { getServerTodayDate } from "@/lib/server-date";
 import { assertSafeTestDatabaseUrl } from "@/scripts/test-database-safety.mjs";
 import { testDb, testSql } from "@/tests/setup";
@@ -38,6 +38,12 @@ describe("date input validation", () => {
 
   it("uses the same strict validation for routine periods", () => {
     expect(() => parseRoutineInput({ content: "検証", priority: "required", daysOfWeek: [1], startDate: "2026-02-31", isActive: true })).toThrow("期間の指定が不正です。");
+  });
+
+  it("requires an ISO updatedAt for routine mutation requests", () => {
+    expect(() => parseRoutineMutationUpdatedAt({})).toThrow("updatedAtは必須です。");
+    expect(() => parseRoutineMutationUpdatedAt({ updatedAt: "not-a-timestamp" })).toThrow("updatedAtの形式が不正です。");
+    expect(parseRoutineMutationUpdatedAt({ updatedAt: "2026-01-15T12:00:00+09:00" })).toBe("2026-01-15T03:00:00.000Z");
   });
 
   it("uses the configured app timezone on both sides of the JST midnight boundary", () => {

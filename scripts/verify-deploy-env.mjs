@@ -1,3 +1,5 @@
+import { validateAppTimeZone } from "./deploy-env-validation.mjs";
+
 const deploymentEnvironment = process.env.DEPLOY_ENV?.trim() || process.env.VERCEL_ENV?.trim();
 
 if (!deploymentEnvironment || deploymentEnvironment === "local") {
@@ -12,6 +14,8 @@ if (deploymentEnvironment !== "production" && deploymentEnvironment !== "preview
 if (process.env.VERCEL_ENV && process.env.DEPLOY_ENV !== process.env.VERCEL_ENV) {
   throw new Error(`DEPLOY_ENV must equal VERCEL_ENV (${process.env.VERCEL_ENV}).`);
 }
+
+validateAppTimeZone(process.env.APP_TIME_ZONE);
 
 if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL must be configured for a deployment.");
 

@@ -145,14 +145,21 @@ export function assertReleaseHealthPayload(payload, releaseSha) {
   }
 }
 
-function parsePositiveSeconds(environmentVariable, defaultSeconds) {
-  const rawValue = process.env[environmentVariable];
+export function parsePositiveSeconds(environmentVariable, defaultSeconds, environment = process.env) {
+  const rawValue = environment[environmentVariable];
   if (rawValue === undefined) return defaultSeconds * 1000;
   const seconds = Number(rawValue);
   if (!Number.isFinite(seconds) || seconds <= 0) {
     fail(`${environmentVariable} must be a positive number of seconds.`);
   }
-  return Math.floor(seconds * 1000);
+  return Math.max(1, Math.floor(seconds * 1000));
+}
+
+export function parseReleaseHealthSettings(environment = process.env) {
+  return {
+    timeoutMs: parsePositiveSeconds("RELEASE_HEALTH_TIMEOUT_SECONDS", DEFAULT_HEALTH_TIMEOUT_MS / 1000, environment),
+    pollIntervalMs: parsePositiveSeconds("RELEASE_HEALTH_POLL_INTERVAL_SECONDS", DEFAULT_HEALTH_POLL_INTERVAL_MS / 1000, environment),
+  };
 }
 
 function getAppHealthStatus(composeArgs, contextRoot, environment) {
@@ -183,7 +190,7 @@ function verifyAppHealth(contextRoot, composeArgs, environment, releaseSha) {
   assertReleaseHealthPayload(payload, releaseSha);
 }
 
-async function runCompose(contextRoot, envFile, releaseSha) {
+async function runCompose(contextRoot, envFile, releaseSha, healthSettings) {
   const envFilePath = resolve(envFile);
   if (!existsSync(envFilePath)) {
     fail(`Environment file not found: ${envFilePath}`);
@@ -215,8 +222,8 @@ async function runCompose(contextRoot, envFile, releaseSha) {
 
   await waitForAppHealth({
     getStatus: () => getAppHealthStatus(composeArgs, contextRoot, environment),
-    timeoutMs: parsePositiveSeconds("RELEASE_HEALTH_TIMEOUT_SECONDS", DEFAULT_HEALTH_TIMEOUT_MS / 1000),
-    pollIntervalMs: parsePositiveSeconds("RELEASE_HEALTH_POLL_INTERVAL_SECONDS", DEFAULT_HEALTH_POLL_INTERVAL_MS / 1000),
+    timeoutMs: healthSettings.timeoutMs,
+    pollIntervalMs: healthSettings.pollIntervalMs,
   });
   verifyAppHealth(contextRoot, composeArgs, environment, releaseSha);
 }
@@ -232,6 +239,7 @@ function removeRollbackWorktree(repoRoot, rollbackWorktree) {
 
 async function main() {
   const { envFile, rollbackRef } = parseArgs();
+  const healthSettings = parseReleaseHealthSettings();
   const repoRoot = run("git", ["rev-parse", "--show-toplevel"], { cwd: process.cwd() });
   assertCleanWorktree(repoRoot);
 
@@ -253,7 +261,7 @@ async function main() {
     }
 
     console.log(`Building production release from ${releaseSha}.`);
-    await runCompose(contextRoot, envFile, releaseSha);
+    await runCompose(contextRoot, envFile, releaseSha, healthSettings);
     console.log(`Production release deployed from ${releaseSha}.`);
   } finally {
     removeRollbackWorktree(repoRoot, rollbackWorktree);

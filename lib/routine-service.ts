@@ -14,6 +14,19 @@ export class RoutineServiceError extends Error {
   }
 }
 
+const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+export function parseExpectedUpdatedAt(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) throw new RoutineServiceError("updatedAtは必須です。", 400);
+  if (!ISO_TIMESTAMP_PATTERN.test(value) || Number.isNaN(Date.parse(value))) throw new RoutineServiceError("updatedAtの形式が不正です。", 400);
+  return new Date(value).toISOString();
+}
+
+export function parseRoutineMutationUpdatedAt(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return parseExpectedUpdatedAt(undefined);
+  return parseExpectedUpdatedAt((value as { updatedAt?: unknown }).updatedAt);
+}
+
 export function parseRoutineInput(value: unknown): RoutineInput {
   if (!value || typeof value !== "object") throw new RoutineServiceError("ルーティーンの入力が不正です。", 400);
   const body = value as Record<string, unknown>;
@@ -51,15 +64,20 @@ function toRoutine(row: typeof routines.$inferSelect, revisions: Array<typeof ro
       startDate: revision.startDate,
       endDate: revision.endDate ?? undefined,
       isActive: revision.isActive,
-      createdAt: revision.createdAt,
+      createdAt: normalizeTimestamp(revision.createdAt),
     })),
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
+    createdAt: normalizeTimestamp(row.createdAt),
+    updatedAt: normalizeTimestamp(row.updatedAt),
   };
 }
 
 function conflictError() {
   return new RoutineServiceError("ルーティーンが別の場所で更新されています。再読み込みしてから再度保存してください。", 409);
+}
+
+function normalizeTimestamp(value: string) {
+  const timestamp = new Date(value);
+  return Number.isNaN(timestamp.getTime()) ? value : timestamp.toISOString();
 }
 
 function nextTimestamp(previous: string) {
