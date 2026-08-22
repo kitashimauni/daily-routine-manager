@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 
 const usage = `Usage:
   pnpm release:production [--compose-env-file .env.production]
-  pnpm release:production -- --rollback <commit-or-tag> [--compose-env-file .env.production]
+  pnpm release:production --rollback <commit-or-tag> [--compose-env-file .env.production]
 
 The release commit is always derived from the Git source used as the Docker build context.
 The worktree must be clean. Production deploys require the main branch; rollback creates a
