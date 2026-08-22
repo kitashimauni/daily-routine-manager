@@ -3,9 +3,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { assertAuthRateLimit, getClientIp } from "@/lib/auth-rate-limit";
 import { getCurrentUser, loginUser, logoutUser, registerUser, removeExpiredSessions } from "@/lib/auth";
 import { routineLogs, routineRevisions, routines, sessions, users } from "@/lib/db/schema";
-import { isValidDateKey } from "@/lib/date";
+import { getTodayDate, isValidDateKey } from "@/lib/date";
 import { getDailyRoutinesForDate, isRoutineEnded, routineForDate } from "@/lib/routine-view";
 import { createRoutineForUser, deactivateRoutineForUser, parseRoutineInput, reactivateRoutineForUser, setRoutineLog, updateRoutineForUser } from "@/lib/routine-service";
+import { getServerTodayDate } from "@/lib/server-date";
 import { assertSafeTestDatabaseUrl } from "@/scripts/test-database-safety.mjs";
 import { testDb, testSql } from "@/tests/setup";
 import { createCookieStore, createTestUser, TEST_TODAY } from "@/tests/helpers";
@@ -37,6 +38,24 @@ describe("date input validation", () => {
 
   it("uses the same strict validation for routine periods", () => {
     expect(() => parseRoutineInput({ content: "検証", priority: "required", daysOfWeek: [1], startDate: "2026-02-31", isActive: true })).toThrow("期間の指定が不正です。");
+  });
+
+  it("uses the configured app timezone on both sides of the JST midnight boundary", () => {
+    const defaultTime = new Date("2026-01-15T03:00:00.000Z");
+    vi.stubEnv("APP_TIME_ZONE", "Asia/Tokyo");
+    try {
+      vi.setSystemTime(new Date("2026-01-14T14:59:59.999Z"));
+      expect(getTodayDate()).toBe("2026-01-14");
+      expect(getTodayDate("Asia/Tokyo")).toBe(getServerTodayDate());
+
+      vi.setSystemTime(new Date("2026-01-14T15:00:00.000Z"));
+      expect(getTodayDate()).toBe("2026-01-15");
+      expect(getTodayDate("Asia/Tokyo")).toBe(getServerTodayDate());
+      expect(getTodayDate("America/Los_Angeles")).toBe("2026-01-14");
+    } finally {
+      vi.setSystemTime(defaultTime);
+      vi.unstubAllEnvs();
+    }
   });
 
   it("does not trust arbitrary forwarded headers outside the configured proxy", () => {

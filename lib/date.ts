@@ -1,9 +1,17 @@
 const pad = (value: number) => String(value).padStart(2, "0");
 const padYear = (value: number) => String(value).padStart(4, "0");
 
-export function getTodayDate() {
-  const today = new Date();
-  return toDateKey(today);
+export const DEFAULT_APP_TIME_ZONE = "Asia/Tokyo";
+
+export function getTodayDate(timeZone = DEFAULT_APP_TIME_ZONE) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone,
+    year: "numeric",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
 }
 
 export function toDateKey(date: Date) {
@@ -44,8 +52,8 @@ export function addMonths(dateKey: string, amount: number) {
   return toDateKey(date);
 }
 
-export function isFutureDate(dateKey: string) {
-  return dateKey > getTodayDate();
+export function isFutureDate(dateKey: string, timeZone = DEFAULT_APP_TIME_ZONE) {
+  return dateKey > getTodayDate(timeZone);
 }
 
 export function formatDateLong(dateKey: string) {

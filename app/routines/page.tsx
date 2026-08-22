@@ -11,6 +11,7 @@ import type { Priority, Routine } from "@/lib/types";
 type RoutineFormInput = Omit<RoutineInput, "isActive">;
 
 interface RoutineFormProps {
+  appTimeZone: string;
   routine?: Routine;
   ended?: boolean;
   onSubmit: (input: RoutineFormInput) => Promise<void>;
@@ -18,11 +19,11 @@ interface RoutineFormProps {
   submitLabel?: string;
 }
 
-function RoutineForm({ routine, ended = false, onSubmit, onCancel, submitLabel = "追加する" }: RoutineFormProps) {
+function RoutineForm({ appTimeZone, routine, ended = false, onSubmit, onCancel, submitLabel = "追加する" }: RoutineFormProps) {
   const [content, setContent] = useState(routine?.content ?? "");
   const [priority, setPriority] = useState<Priority>(routine?.priority ?? "required");
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>(routine?.daysOfWeek ?? [1, 2, 3, 4, 5]);
-  const [startDate, setStartDate] = useState(routine?.startDate ?? getTodayDate());
+  const [startDate, setStartDate] = useState(routine?.startDate ?? getTodayDate(appTimeZone));
   const [endDate, setEndDate] = useState(routine?.endDate ?? "");
   const [submitting, setSubmitting] = useState(false);
 
@@ -37,7 +38,7 @@ function RoutineForm({ routine, ended = false, onSubmit, onCancel, submitLabel =
         setContent("");
         setPriority("required");
         setDaysOfWeek([1, 2, 3, 4, 5]);
-        setStartDate(getTodayDate());
+        setStartDate(getTodayDate(appTimeZone));
         setEndDate("");
       }
     } catch {
@@ -104,11 +105,11 @@ function ManagedRoutine({ routine, ended, onEdit, onDeactivate, onReactivate }: 
 }
 
 export default function RoutinesPage() {
-  const { hydrated, routines, addRoutine, updateRoutine, deactivateRoutine, reactivateRoutine } = useRoutines();
+  const { appTimeZone, hydrated, routines, addRoutine, updateRoutine, deactivateRoutine, reactivateRoutine } = useRoutines();
   const [editing, setEditing] = useState<Routine | null>(null);
 
   if (!hydrated) return <div className="page-wrap"><div className="skeleton" /></div>;
-  const today = getTodayDate();
+  const today = getTodayDate(appTimeZone);
   const isEmpty = routines.length === 0;
   const activeRequired = routines.filter((routine) => routine.isActive && !isRoutineEnded(routine, today) && routine.priority === "required");
   const activeOptional = routines.filter((routine) => routine.isActive && !isRoutineEnded(routine, today) && routine.priority === "optional");
@@ -129,7 +130,7 @@ export default function RoutinesPage() {
           <p className="eyebrow">{isEmpty ? "Getting started" : "New routine"}</p>
           <h2>{isEmpty ? "最初のルーティーンを追加" : "新しいルーティーン"}</h2>
           {isEmpty && <p className="form-intro">毎日続けたいことを登録してみましょう。</p>}
-          <RoutineForm onSubmit={async (input) => { await addRoutine({ ...input, isActive: true }); }} />
+          <RoutineForm appTimeZone={appTimeZone} onSubmit={async (input) => { await addRoutine({ ...input, isActive: true }); }} />
         </section>
         <div className="routine-list">
           <section className="card management-section">
@@ -145,7 +146,7 @@ export default function RoutinesPage() {
         </div>
       </div>
 
-      {editing && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditing(null); }}><div className="modal card" role="dialog" aria-modal="true" aria-label="ルーティーンを編集"><div className="modal-head"><h2>ルーティーンを編集</h2><button className="icon-btn" type="button" aria-label="閉じる" onClick={() => setEditing(null)}><Icon name="x" size={17} /></button></div><RoutineForm routine={editing} ended={isRoutineEnded(editing, today)} submitLabel="変更を保存" onCancel={() => setEditing(null)} onSubmit={async (input) => { await updateRoutine(editing.id, { ...input, isActive: editing.isActive }); setEditing(null); }} /></div></div>}
+      {editing && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditing(null); }}><div className="modal card" role="dialog" aria-modal="true" aria-label="ルーティーンを編集"><div className="modal-head"><h2>ルーティーンを編集</h2><button className="icon-btn" type="button" aria-label="閉じる" onClick={() => setEditing(null)}><Icon name="x" size={17} /></button></div><RoutineForm appTimeZone={appTimeZone} routine={editing} ended={isRoutineEnded(editing, today)} submitLabel="変更を保存" onCancel={() => setEditing(null)} onSubmit={async (input) => { await updateRoutine(editing.id, { ...input, isActive: editing.isActive }); setEditing(null); }} /></div></div>}
     </div>
   );
 }

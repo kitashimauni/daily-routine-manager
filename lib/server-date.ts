@@ -1,11 +1,16 @@
+import { DEFAULT_APP_TIME_ZONE } from "@/lib/date";
+
 const pad = (value: number) => String(value).padStart(2, "0");
 
+export function getAppTimeZone() {
+  return process.env.APP_TIME_ZONE || DEFAULT_APP_TIME_ZONE;
+}
+
 export function getServerTodayDate() {
-  const timeZone = process.env.APP_TIME_ZONE || "Asia/Tokyo";
   const parts = new Intl.DateTimeFormat("en-US", {
     day: "2-digit",
     month: "2-digit",
-    timeZone,
+    timeZone: getAppTimeZone(),
     year: "numeric",
   }).formatToParts(new Date());
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));

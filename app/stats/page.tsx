@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/icon";
 import { addDays, addMonths, formatMonth, getTodayDate, monthStart } from "@/lib/date";
 import { useRoutines } from "@/lib/routine-context";
@@ -20,10 +20,15 @@ function ProgressSummary({ priority, planned, completed }: { priority: Priority;
 }
 
 export default function StatsPage() {
-  const { hydrated, routines, getDailyRoutines } = useRoutines();
-  const today = getTodayDate();
+  const { appTimeZone, hydrated, routines, getDailyRoutines } = useRoutines();
+  const today = getTodayDate(appTimeZone);
   const [month, setMonth] = useState(monthStart(today));
   const [period, setPeriod] = useState<"month" | "30days">("month");
+
+  useEffect(() => {
+    setMonth(monthStart(today));
+  }, [appTimeZone, today]);
+
   const dates = useMemo(() => {
     const range = period === "month" ? datesForMonth(month) : Array.from({ length: 30 }, (_, index) => addDays(today, index - 29));
     return range.filter((date) => date <= today);
