@@ -1,12 +1,50 @@
+import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { createRoutineForUser, setRoutineLog } from "@/lib/routine-service";
-import { exportDataForUser, importDataForUser, validateDataExport } from "@/lib/data-portability";
+import { exportDataForUser, importDataForUser, serializeDataExport, validateDataExport, type DataExportPayload } from "@/lib/data-portability";
 import { routineLogs, routineRevisions, routines } from "@/lib/db/schema";
 import { testDb, testSql } from "@/tests/setup";
 import { createTestUser, TEST_TODAY } from "@/tests/helpers";
 
 describe("data portability", () => {
+  it("rejects an export whose serialized size exceeds the shared import limit", () => {
+    const routineId = randomUUID();
+    const oversizedPayload = {
+      format: "daily-routine-manager",
+      schemaVersion: 1,
+      exportedAt: "2026-01-15T03:00:00.000Z",
+      data: {
+        routines: [{ id: routineId, content: "大きなExport", priority: "required" as const, daysOfWeek: [4], startDate: TEST_TODAY, endDate: null, isActive: true, createdAt: "2026-01-15T03:00:00.000Z", updatedAt: "2026-01-15T03:00:00.000Z" }],
+        revisions: [{ id: randomUUID(), routineId, content: "大きなExport", priority: "required" as const, daysOfWeek: [4], startDate: TEST_TODAY, endDate: null, isActive: true, createdAt: "2026-01-15T03:00:00.000Z" }],
+        logs: Array.from({ length: 60_000 }, (_, index) => ({ id: randomUUID(), routineId, date: new Date(Date.UTC(1900, 0, index + 1)).toISOString().slice(0, 10), createdAt: "2026-01-15T03:00:00.000Z", updatedAt: "2026-01-15T03:00:00.000Z" })),
+      },
+    } satisfies DataExportPayload;
+
+    expect(() => serializeDataExport(oversizedPayload)).toThrow("サポート上限");
+  });
+
+  it("imports large routine, revision, and log sets in chunks", async () => {
+    const user = await createTestUser();
+    const routineIds = Array.from({ length: 501 }, () => randomUUID());
+    const timestamp = "2026-01-15T03:00:00.000Z";
+    const payload: DataExportPayload = {
+      format: "daily-routine-manager",
+      schemaVersion: 1,
+      exportedAt: timestamp,
+      data: {
+        routines: routineIds.map((id) => ({ id, content: "大量Import", priority: "required", daysOfWeek: [4], startDate: TEST_TODAY, endDate: null, isActive: true, createdAt: timestamp, updatedAt: timestamp })),
+        revisions: routineIds.map((routineId) => ({ id: randomUUID(), routineId, content: "大量Import", priority: "required", daysOfWeek: [4], startDate: TEST_TODAY, endDate: null, isActive: true, createdAt: timestamp })),
+        logs: routineIds.map((routineId) => ({ id: randomUUID(), routineId, date: TEST_TODAY, createdAt: timestamp, updatedAt: timestamp })),
+      },
+    };
+
+    await expect(importDataForUser(user.id, payload)).resolves.toEqual({ routines: 501, revisions: 501, logs: 501 });
+    expect(await testDb.select().from(routines).where(eq(routines.userId, user.id))).toHaveLength(501);
+    expect(await testDb.select().from(routineRevisions)).toHaveLength(501);
+    expect(await testDb.select().from(routineLogs).where(eq(routineLogs.userId, user.id))).toHaveLength(501);
+  });
+
   it("exports only the current user's data and imports it with isolated IDs", async () => {
     const owner = await createTestUser();
     const other = await createTestUser();
