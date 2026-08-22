@@ -12,6 +12,8 @@
 
 Todayの`?date=YYYY-MM-DD`は実在する日付だけを受け付けます。形式不正・存在しない日付は今日へ戻し、未来の日付は閲覧のみ、過去の日付は履歴確認用として扱います。ルーティーンの記録APIでは未来日や対象外の日への保存を拒否します。
 
+アプリの「今日」は`APP_TIME_ZONE`（既定`Asia/Tokyo`）を基準にします。ブラウザが別のタイムゾーンでも、Today / Calendar / Stats / Routine作成初期値とAPIの日付判定は同じ基準で動作します。
+
 ## 開発
 
 ```powershell
@@ -34,9 +36,9 @@ Windowsでmise本体が未導入の場合は、先に `scoop install mise` ま�
 Productionのdeployは、`main`のcleanなGit worktreeから`mise exec -- pnpm release:production`を実行します。スクリプトが`git rev-parse HEAD`からcommit SHAを導出し、同じsourceをDocker build contextにして、SHA付きimage tagと`/api/health`のrelease metadataへ注入します。rollbackは`--rollback <commit-or-tag>`で対象commitの一時detached worktreeを作成するため、現在のコードへ過去SHAだけを設定することはできません。image buildにはDB変更を含めず、one-shotの`migrate` serviceで環境検証とmigrationを実行してから`app`を起動します。migrationが失敗した場合はappを起動しません。appのDocker healthcheckがhealthyになり、`/api/health`のrelease SHAが起動対象commitと一致した後だけdeploy成功として終了します。稼働中のcommit、version、環境は`GET /api/health`で確認できます。
 
 ```bash
-mise exec -- pnpm release:production -- --compose-env-file .env.production
+mise exec -- pnpm release:production --compose-env-file .env.production
 # rollback: mainのcleanなworktreeで実行する
-mise exec -- pnpm release:production -- --rollback <known-main-commit-or-tag> --compose-env-file .env.production
+mise exec -- pnpm release:production --rollback <known-main-commit-or-tag> --compose-env-file .env.production
 ```
 
 初回アクセス時にアカウントを登録して利用します。新規登録直後はルーティーン0件の状態で始まり、Todayの「最初のルーティーンを追加」から登録できます。ルーティーンと完了ログはPostgreSQLにユーザー単位で保存されるため、ブラウザを変えても同じアカウントで参照できます。

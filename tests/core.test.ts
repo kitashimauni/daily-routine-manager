@@ -3,9 +3,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { assertAuthRateLimit, getClientIp } from "@/lib/auth-rate-limit";
 import { getCurrentUser, loginUser, logoutUser, registerUser, removeExpiredSessions } from "@/lib/auth";
 import { routineLogs, routineRevisions, routines, sessions, users } from "@/lib/db/schema";
-import { isValidDateKey } from "@/lib/date";
+import { getTodayDate, isValidDateKey } from "@/lib/date";
 import { getDailyRoutinesForDate, isRoutineEnded, routineForDate } from "@/lib/routine-view";
-import { createRoutineForUser, deactivateRoutineForUser, parseRoutineInput, reactivateRoutineForUser, setRoutineLog, updateRoutineForUser } from "@/lib/routine-service";
+import { createRoutineForUser, deactivateRoutineForUser, listRoutineData, parseRoutineInput, reactivateRoutineForUser, setRoutineLog, updateRoutineForUser } from "@/lib/routine-service";
+import { getServerTodayDate } from "@/lib/server-date";
 import { assertSafeTestDatabaseUrl } from "@/scripts/test-database-safety.mjs";
 import { testDb, testSql } from "@/tests/setup";
 import { createCookieStore, createTestUser, TEST_TODAY } from "@/tests/helpers";
@@ -39,6 +40,24 @@ describe("date input validation", () => {
     expect(() => parseRoutineInput({ content: "検証", priority: "required", daysOfWeek: [1], startDate: "2026-02-31", isActive: true })).toThrow("期間の指定が不正です。");
   });
 
+  it("uses the configured app timezone on both sides of the JST midnight boundary", () => {
+    const defaultTime = new Date("2026-01-15T03:00:00.000Z");
+    vi.stubEnv("APP_TIME_ZONE", "Asia/Tokyo");
+    try {
+      vi.setSystemTime(new Date("2026-01-14T14:59:59.999Z"));
+      expect(getTodayDate()).toBe("2026-01-14");
+      expect(getTodayDate("Asia/Tokyo")).toBe(getServerTodayDate());
+
+      vi.setSystemTime(new Date("2026-01-14T15:00:00.000Z"));
+      expect(getTodayDate()).toBe("2026-01-15");
+      expect(getTodayDate("Asia/Tokyo")).toBe(getServerTodayDate());
+      expect(getTodayDate("America/Los_Angeles")).toBe("2026-01-14");
+    } finally {
+      vi.setSystemTime(defaultTime);
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("does not trust arbitrary forwarded headers outside the configured proxy", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("VERCEL", "");
@@ -58,6 +77,70 @@ describe("date input validation", () => {
 });
 
 describe("routine views and revision boundaries", () => {
+  it("returns routines, revisions, and logs from one snapshot while an update is in progress", async () => {
+    const user = await createTestUser();
+    const routine = await createRoutineForUser(user.id, {
+      content: "更新前のRoutine",
+      priority: "required",
+      daysOfWeek: [4],
+      startDate: TEST_TODAY,
+      isActive: true,
+    });
+    await setRoutineLog(user.id, routine.id, TEST_TODAY, true);
+    await testSql`CREATE OR REPLACE FUNCTION test_delay_routine_update() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(0.4); RETURN NEW; END; $$`;
+    await testSql`CREATE TRIGGER test_delay_routine_update AFTER UPDATE ON routines FOR EACH ROW EXECUTE FUNCTION test_delay_routine_update()`;
+    try {
+      const updatePromise = updateRoutineForUser(user.id, routine.id, {
+        content: "更新後のRoutine",
+        priority: "optional",
+        daysOfWeek: [4],
+        startDate: TEST_TODAY,
+        isActive: true,
+      }, { expectedUpdatedAt: routine.updatedAt });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const snapshot = await listRoutineData(user.id);
+      await updatePromise;
+
+      expect(snapshot.routines[0]).toMatchObject({ content: "更新前のRoutine" });
+      expect(snapshot.routines[0]?.revisions).toHaveLength(1);
+      expect(snapshot.routines[0]?.revisions[0]).toMatchObject({ content: "更新前のRoutine" });
+      expect(snapshot.logs[`${routine.id}__${TEST_TODAY}`]).toBeDefined();
+    } finally {
+      await testSql`DROP TRIGGER IF EXISTS test_delay_routine_update ON routines`;
+      await testSql`DROP FUNCTION IF EXISTS test_delay_routine_update()`;
+    }
+  });
+
+  it("rejects concurrent updates using the same routine version", async () => {
+    const user = await createTestUser();
+    const routine = await createRoutineForUser(user.id, {
+      content: "競合前のRoutine",
+      priority: "required",
+      daysOfWeek: [4],
+      startDate: TEST_TODAY,
+      isActive: true,
+    });
+    const input = {
+      content: "競合更新",
+      priority: "optional" as const,
+      daysOfWeek: [4],
+      startDate: TEST_TODAY,
+      isActive: true,
+    };
+
+    const results = await Promise.allSettled([
+      updateRoutineForUser(user.id, routine.id, input, { expectedUpdatedAt: routine.updatedAt }),
+      updateRoutineForUser(user.id, routine.id, { ...input, content: "もう一つの競合更新" }, { expectedUpdatedAt: routine.updatedAt }),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")[0]).toMatchObject({ reason: { status: 409 } });
+    const current = await listRoutineData(user.id);
+    expect(current.routines).toHaveLength(1);
+    expect(current.routines[0]?.revisions).toHaveLength(1);
+    expect(current.routines[0]?.revisions.at(-1)?.content).toBe(current.routines[0]?.content);
+  });
+
   it("shows only routines scheduled for the requested weekday and restores the revision for that date", async () => {
     const user = await createTestUser();
     const thursday = await createRoutineForUser(user.id, {
@@ -304,6 +387,47 @@ describe("authentication, transactions, and rate limits", () => {
     const ip = "198.51.100.10";
     for (let attempt = 0; attempt < 10; attempt += 1) await assertAuthRateLimit("login", ip);
     await expect(assertAuthRateLimit("login", ip)).rejects.toMatchObject({ status: 429 });
+  });
+
+  it("cleans multiple expired sessions during successful login and keeps valid sessions", async () => {
+    const email = "session-cleanup@example.com";
+    const password = "correct-horse-battery-staple";
+    const user = await registerUser(email, password, { cookieStore: createCookieStore() });
+    await loginUser(email, password, { cookieStore: createCookieStore() });
+    await loginUser(email, password, { cookieStore: createCookieStore() });
+
+    const createdSessions = await testDb.select().from(sessions).where(eq(sessions.userId, user.id));
+    expect(createdSessions).toHaveLength(3);
+    const expiredSessionIds = createdSessions.slice(0, 2).map((session) => session.id);
+    const validSessionId = createdSessions[2].id;
+    await testDb.update(sessions).set({ expiresAt: "2026-01-15T03:00:00.000Z" }).where(eq(sessions.id, expiredSessionIds[0]));
+    await testDb.update(sessions).set({ expiresAt: "2026-01-15T03:00:00.000Z" }).where(eq(sessions.id, expiredSessionIds[1]));
+
+    await loginUser(email, password, { cookieStore: createCookieStore() });
+
+    const remainingSessions = await testDb.select().from(sessions).where(eq(sessions.userId, user.id));
+    expect(remainingSessions.map((session) => session.id)).not.toEqual(expect.arrayContaining(expiredSessionIds));
+    expect(remainingSessions.map((session) => session.id)).toEqual(expect.arrayContaining([validSessionId]));
+    expect(remainingSessions).toHaveLength(2);
+  });
+
+  it("does not block successful login when session cleanup fails", async () => {
+    const email = "session-cleanup-failure@example.com";
+    const password = "correct-horse-battery-staple";
+    const user = await registerUser(email, password, { cookieStore: createCookieStore() });
+    const [session] = await testDb.select().from(sessions).where(eq(sessions.userId, user.id));
+    await testDb.update(sessions).set({ expiresAt: "2026-01-15T03:00:00.000Z" }).where(eq(sessions.id, session.id));
+    await testSql`CREATE OR REPLACE FUNCTION test_fail_expired_session_cleanup() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test cleanup failure'; END; $$`;
+    await testSql`CREATE TRIGGER test_fail_expired_session_cleanup BEFORE DELETE ON sessions FOR EACH ROW EXECUTE FUNCTION test_fail_expired_session_cleanup()`;
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      expect(await loginUser(email, password, { cookieStore: createCookieStore() })).toEqual(user);
+      expect(errorSpy).toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+      await testSql`DROP TRIGGER IF EXISTS test_fail_expired_session_cleanup ON sessions`;
+      await testSql`DROP FUNCTION IF EXISTS test_fail_expired_session_cleanup()`;
+    }
   });
 
   it("normalizes duplicate registration and preserves the existing account", async () => {

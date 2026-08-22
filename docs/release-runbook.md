@@ -12,7 +12,7 @@
 `compose.prod.yaml`は`app`、`postgres`、one-shotの`migrate`を分離する。`app`はDocker network上の`:3000`だけを`expose`し、PostgreSQLもhostへ`ports`公開しない。reverse proxyは`routine-frontend` networkへ参加し、`app:3000`をupstreamにする。appとmigrateはDockerfileで`nextjs`非rootユーザー、backupは固定digestのPostgreSQL公式image内`postgres`非rootユーザーで実行する。backupのbind mountは、そのimage内の`postgres` UID/GIDが書き込める所有者・permissionに設定する。
 
 Production URL: `<reverse-proxyで設定した本番HTTPS URL>`
-Backup storage: `<host外または別ストレージのバックアップ保存先>`
+Backup storage: `/srv/daily-routine-manager-backups`（Git worktree外の標準例。実運用では別disk / host / object storageを使用する）
 Backup retention: `7日以上（実際の保持期間をここへ記録）`
 
 ## 初回セットアップ
@@ -42,7 +42,7 @@ backup用bind mountの所有者を、固定digestのPostgreSQL image内`postgres
 POSTGRES_IMAGE='postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2'
 BACKUP_UID="$(docker run --rm --entrypoint id "$POSTGRES_IMAGE" -u postgres)"
 BACKUP_GID="$(docker run --rm --entrypoint id "$POSTGRES_IMAGE" -g postgres)"
-sudo install -d -o "$BACKUP_UID" -g "$BACKUP_GID" -m 700 /srv/daily-routine-manager/backups
+sudo install -d -o "$BACKUP_UID" -g "$BACKUP_GID" -m 700 /srv/daily-routine-manager-backups
 ```
 
 ### DNS / HTTPS
@@ -82,7 +82,7 @@ git fetch origin main
 git checkout main
 git pull --ff-only origin main
 test -z "$(git status --porcelain)"
-mise exec -- pnpm release:production -- --compose-env-file .env.production
+mise exec -- pnpm release:production --compose-env-file .env.production
 ```
 
 `release:production`がcleanな`main` worktreeを検証し、`git rev-parse HEAD`でrelease SHAを導出してから、同じworktreeをComposeのbuild contextに指定する。Composeのapp imageは`daily-routine-manager:<commit-sha>`、migrate imageは`daily-routine-manager-migrate:<commit-sha>`として作成される。Compose validationは`config --quiet`で構文と必須変数だけを検証し、展開済みの`DATABASE_URL`や`POSTGRES_PASSWORD`を標準出力へ表示しない。ネットワークや`ports`の設定は、レビュー済みの`compose.prod.yaml`とCIの検証で確認する。app起動後はDocker healthcheckがhealthyになるまで待機し、`/api/health`のrelease SHAが対象commitと一致した場合だけ成功扱いにする。既定のhealth待機timeoutは120秒で、`RELEASE_HEALTH_TIMEOUT_SECONDS`と`RELEASE_HEALTH_POLL_INTERVAL_SECONDS`で調整できる。
@@ -148,10 +148,10 @@ docker compose --env-file .env.production -f compose.prod.yaml stop app
 3. 対象dumpのchecksumを確認し、PostgreSQLへrestoreする。実行前に対象DBとdumpを再確認する。
 
 ```bash
-sha256sum -c /srv/daily-routine-manager/backups/routine-YYYYMMDDTHHMMSSZ.dump.sha256
+sha256sum -c /srv/daily-routine-manager-backups/routine-YYYYMMDDTHHMMSSZ.dump.sha256
 docker run --rm --network routine-backend \
   --env-file .env.production \
-  -v /srv/daily-routine-manager/backups:/backups:ro \
+  -v /srv/daily-routine-manager-backups:/backups:ro \
   postgres:18-alpine \
   sh -ec 'pg_restore --clean --if-exists --no-owner --dbname="$DATABASE_URL" /backups/routine-YYYYMMDDTHHMMSSZ.dump'
 ```
@@ -168,7 +168,7 @@ docker run --rm --network routine-backend \
 ```bash
 git fetch origin main
 test -z "$(git status --porcelain)"
-mise exec -- pnpm release:production -- --rollback <known-main-commit-or-tag> --compose-env-file .env.production
+mise exec -- pnpm release:production --rollback <known-main-commit-or-tag> --compose-env-file .env.production
 ```
 
 `RELEASE_COMMIT_SHA`だけを過去値へ変更して現在のsourceをbuildする操作は禁止する。rollback imageは`daily-routine-manager:<target-commit-sha>`として残るため、healthの`release.commitSha`、Composeのimage tag、対象source commitを突合する。
@@ -223,6 +223,7 @@ Productionで次のチェックリストも実行する。
 6. 編集後も過去履歴が変化しない
 7. 無効化が翌日から、再開が当日から反映される
 8. 終了日を過ぎたRoutineの編集で予定が復活せず、明示的な延長 / 再開だけで復帰する
-9. 再読み込み / 再ログイン後もデータが保持される
-10. 別ユーザー間でデータが分離される
-11. モバイル幅で主要操作が可能
+9. 非JSTのブラウザでもToday / Calendar / Stats / Routine作成初期値が`APP_TIME_ZONE`基準になる
+10. 再読み込み / 再ログイン後もデータが保持される
+11. 別ユーザー間でデータが分離される
+12. モバイル幅で主要操作が可能

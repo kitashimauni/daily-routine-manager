@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { DEFAULT_APP_TIME_ZONE } from "@/lib/date";
 import { getDailyRoutinesForDate } from "@/lib/routine-view";
 import type { AuthUser, DailyRoutines, Routine, RoutineInput, RoutineLog, RoutineLogs } from "@/lib/types";
 
@@ -12,6 +13,7 @@ interface RoutineDataResponse {
 }
 
 interface RoutineContextValue {
+  appTimeZone: string;
   user: AuthUser | null;
   authHydrated: boolean;
   error: string | null;
@@ -30,6 +32,7 @@ interface RoutineContextValue {
   register: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   retry: () => Promise<void>;
+  reloadData: () => Promise<void>;
   authenticatedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 }
 
@@ -60,6 +63,7 @@ function errorMessage(error: unknown) {
 }
 
 export function RoutineProvider({ children }: { children: React.ReactNode }) {
+  const [appTimeZone, setAppTimeZone] = useState(DEFAULT_APP_TIME_ZONE);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [authHydrated, setAuthHydrated] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +114,8 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     setErrorSource(null);
     try {
-      const response = await requestJson<{ user: AuthUser | null }>("/api/auth/session");
+      const response = await requestJson<{ user: AuthUser | null; timeZone?: string }>("/api/auth/session");
+      if (response.timeZone) setAppTimeZone(response.timeZone);
       setUser(response.user);
       if (response.user) {
         if (!preserveUi) setHydrated(false);
@@ -137,9 +142,9 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     setErrorSource(null);
     setHydrated(false);
-    let response: { user: AuthUser };
+    let response: { user: AuthUser; timeZone?: string };
     try {
-      response = await requestJson<{ user: AuthUser }>(endpoint, { method: "POST", body: JSON.stringify({ email, password }) });
+      response = await requestJson<{ user: AuthUser; timeZone?: string }>(endpoint, { method: "POST", body: JSON.stringify({ email, password }) });
     } catch (authError) {
       setUser(null);
       resetData();
@@ -150,6 +155,7 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
     }
 
     setUser(response.user);
+    if (response.timeZone) setAppTimeZone(response.timeZone);
     try {
       await loadRoutineData();
     } catch (dataError) {
@@ -243,7 +249,8 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     setErrorSource(null);
     try {
-      const response = await authenticatedRequestJson<{ routine: Routine }>(`/api/routines/${encodeURIComponent(routineId)}`, { method: "PATCH", body: JSON.stringify(input) });
+      const currentRoutine = routines.find((routine) => routine.id === routineId);
+      const response = await authenticatedRequestJson<{ routine: Routine }>(`/api/routines/${encodeURIComponent(routineId)}`, { method: "PATCH", body: JSON.stringify(currentRoutine ? { ...input, updatedAt: currentRoutine.updatedAt } : input) });
       setRoutines((current) => current.map((routine) => routine.id === routineId ? response.routine : routine));
     } catch (requestError) {
       if (isUnauthorizedError(requestError)) invalidateSession();
@@ -253,13 +260,14 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
       }
       throw requestError;
     }
-  }, [authenticatedRequestJson, invalidateSession]);
+  }, [authenticatedRequestJson, invalidateSession, routines]);
 
   const changeRoutineState = useCallback(async (routineId: string, action: "deactivate" | "reactivate") => {
     setError(null);
     setErrorSource(null);
     try {
-      const response = await authenticatedRequestJson<{ routine: Routine }>(`/api/routines/${encodeURIComponent(routineId)}`, { method: "POST", body: JSON.stringify({ action }) });
+      const currentRoutine = routines.find((routine) => routine.id === routineId);
+      const response = await authenticatedRequestJson<{ routine: Routine }>(`/api/routines/${encodeURIComponent(routineId)}`, { method: "POST", body: JSON.stringify(currentRoutine ? { action, updatedAt: currentRoutine.updatedAt } : { action }) });
       setRoutines((current) => current.map((routine) => routine.id === routineId ? response.routine : routine));
     } catch (requestError) {
       if (isUnauthorizedError(requestError)) invalidateSession();
@@ -268,15 +276,33 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
         setErrorSource("data");
       }
     }
-  }, [authenticatedRequestJson, invalidateSession]);
+  }, [authenticatedRequestJson, invalidateSession, routines]);
 
   const deactivateRoutine = useCallback((routineId: string) => changeRoutineState(routineId, "deactivate"), [changeRoutineState]);
   const reactivateRoutine = useCallback((routineId: string) => changeRoutineState(routineId, "reactivate"), [changeRoutineState]);
   const retry = useCallback(() => refreshSession(true), [refreshSession]);
+  const reloadData = useCallback(async () => {
+    setError(null);
+    setErrorSource(null);
+    setHydrated(false);
+    try {
+      await loadRoutineData();
+    } catch (requestError) {
+      if (isUnauthorizedError(requestError)) invalidateSession();
+      else {
+        resetData();
+        setError("データを再読み込みできませんでした。画面を再読み込みしてください。");
+        setErrorSource("data");
+      }
+      throw requestError;
+    } finally {
+      setHydrated(true);
+    }
+  }, [invalidateSession, loadRoutineData, resetData]);
 
   const value = useMemo(
-    () => ({ user, authHydrated, error, errorSource, routines, logs, hydrated, getDailyRoutines, isCompleted, toggleRoutine, addRoutine, updateRoutine, deactivateRoutine, reactivateRoutine, login, register, logout, retry, authenticatedFetch }),
-    [addRoutine, authenticatedFetch, authHydrated, deactivateRoutine, error, errorSource, getDailyRoutines, hydrated, isCompleted, login, logs, logout, reactivateRoutine, register, retry, routines, toggleRoutine, updateRoutine, user],
+    () => ({ appTimeZone, user, authHydrated, error, errorSource, routines, logs, hydrated, getDailyRoutines, isCompleted, toggleRoutine, addRoutine, updateRoutine, deactivateRoutine, reactivateRoutine, login, register, logout, retry, reloadData, authenticatedFetch }),
+    [addRoutine, appTimeZone, authenticatedFetch, authHydrated, deactivateRoutine, error, errorSource, getDailyRoutines, hydrated, isCompleted, login, logs, logout, reactivateRoutine, register, reloadData, retry, routines, toggleRoutine, updateRoutine, user],
   );
 
   return <RoutineContext.Provider value={value}>{children}</RoutineContext.Provider>;

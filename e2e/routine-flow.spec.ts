@@ -240,6 +240,47 @@ test("keeps Today date navigation stable for past and future dates", async ({ pa
   expect(mobileActionsBox!.x + mobileActionsBox!.width).toBeLessThanOrEqual(375);
 });
 
+test("uses the app timezone for today in a non-JST browser", async ({ browser }) => {
+  const context = await browser.newContext({ timezoneId: "America/Los_Angeles" });
+  const page = await context.newPage();
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": testClientIp("non-jst-timezone", 0) });
+  await page.addInitScript({ content: `
+    (() => {
+      const RealDate = Date;
+      const fixedTime = RealDate.parse("2026-01-14T15:00:00.000Z");
+      class FixedDate extends RealDate {
+        constructor(...args) {
+          if (args.length === 0) super(fixedTime);
+          else super(...args);
+        }
+
+        static now() {
+          return fixedTime;
+        }
+      }
+      globalThis.Date = FixedDate;
+    })();
+  ` });
+
+  try {
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const email = `e2e-non-jst-${unique}@example.com`;
+    const password = "correct-horse-battery-staple";
+
+    await register(page, email, password);
+    await expect(page.locator(".date-title")).toContainText("1月15日");
+    await expect(page.locator(".today-chip")).toBeVisible();
+
+    await page.getByRole("link", { name: "Routines" }).click();
+    await expect(page.getByLabel("開始日")).toHaveValue("2026-01-15");
+
+    await page.getByRole("link", { name: "Calendar" }).click();
+    await expect(page.locator(".calendar-cell.today")).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});
+
 test("keeps ended routine edits out of the future until explicitly resumed", async ({ page }) => {
   const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const email = `e2e-ended-routine-${unique}@example.com`;
@@ -572,4 +613,35 @@ test("exports and imports user data from Settings", async ({ page }) => {
   await expect(page.getByRole("status")).toContainText("1件のRoutine");
   await page.getByRole("link", { name: "Routines" }).click();
   await expect(page.getByText("持ち運びするRoutine")).toBeVisible();
+});
+
+test("does not show import success when the post-import reload fails", async ({ page }) => {
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-portability-reload-${unique}@example.com`;
+  const password = "correct-horse-battery-staple";
+
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": `198.51.100.${Math.floor(Math.random() * 200) + 1}` });
+  await register(page, email, password);
+  await createRoutine(page, "再読み込み失敗用Routine");
+  await page.getByRole("link", { name: "Settings" }).click();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "JSONをダウンロード" }).click();
+  const download = await downloadPromise;
+  const downloadPath = await download.path();
+  expect(downloadPath).toBeTruthy();
+  await page.locator("#data-import-file").setInputFiles(downloadPath!);
+  await expect(page.getByText(/Routine 1件 \/ 履歴 1件 \/ 完了ログ 0件/)).toBeVisible();
+
+  await page.route("**/api/routines", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "一時的にデータを取得できません。" }) });
+      return;
+    }
+    await route.continue();
+  });
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "この内容で置き換える" }).click();
+
+  await expect(page.getByText("データの置き換えは完了しましたが、画面の再読み込みに失敗しました。データを再読み込みしてください。")).toBeVisible();
+  await expect(page.getByRole("status")).toHaveCount(0);
 });

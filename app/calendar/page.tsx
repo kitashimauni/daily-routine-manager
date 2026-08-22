@@ -24,11 +24,16 @@ function routineStatusFor(routine: Routine, date: string, logs: RoutineLogs): Ro
 }
 
 export default function CalendarPage() {
-  const { hydrated, getDailyRoutines, logs, routines } = useRoutines();
-  const today = getTodayDate();
+  const { appTimeZone, hydrated, getDailyRoutines, logs, routines } = useRoutines();
+  const today = getTodayDate(appTimeZone);
   const [month, setMonth] = useState(monthStart(today));
   const [selectedDate, setSelectedDate] = useState(today);
   const [selectedRoutineId, setSelectedRoutineId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMonth(monthStart(today));
+    setSelectedDate(today);
+  }, [appTimeZone, today]);
 
   useEffect(() => {
     if (!hydrated) return;
