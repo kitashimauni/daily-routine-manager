@@ -68,17 +68,17 @@ function EmptyRoutineState() {
 }
 
 export default function TodayPage() {
-  const { hydrated, routines, getDailyRoutines, toggleRoutine } = useRoutines();
+  const { appTimeZone, hydrated, routines, getDailyRoutines, toggleRoutine } = useRoutines();
   const [date, setDate] = useState("");
   const [pendingRoutineId, setPendingRoutineId] = useState<string | null>(null);
 
   useEffect(() => {
     const queryDate = new URLSearchParams(window.location.search).get("date");
-    const todayDate = getTodayDate();
+    const todayDate = getTodayDate(appTimeZone);
     const nextDate = queryDate && isValidDateKey(queryDate) ? queryDate : todayDate;
     setDate(nextDate);
     if (queryDate !== nextDate) window.history.replaceState(null, "", nextDate === todayDate ? "/" : `/?date=${nextDate}`);
-  }, []);
+  }, [appTimeZone]);
 
   const daily = useMemo(() => (date ? getDailyRoutines(date) : { required: [], optional: [] }), [date, getDailyRoutines]);
   const requiredDone = daily.required.filter((item) => item.completed).length;
@@ -86,8 +86,8 @@ export default function TodayPage() {
   const total = daily.required.length + daily.optional.length;
   const completed = requiredDone + optionalDone;
   const progress = total ? Math.round((completed / total) * 100) : 0;
-  const today = date === getTodayDate();
-  const readOnly = date ? isFutureDate(date) : false;
+  const today = date === getTodayDate(appTimeZone);
+  const readOnly = date ? isFutureDate(date, appTimeZone) : false;
 
   const moveDate = (amount: number) => {
     const nextDate = addDays(date, amount);
@@ -96,7 +96,7 @@ export default function TodayPage() {
   };
 
   const resetToToday = () => {
-    const todayDate = getTodayDate();
+    const todayDate = getTodayDate(appTimeZone);
     setDate(todayDate);
     window.history.replaceState(null, "", "/");
   };
