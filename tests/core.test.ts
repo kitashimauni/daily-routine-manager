@@ -5,7 +5,7 @@ import { getCurrentUser, loginUser, logoutUser, registerUser, removeExpiredSessi
 import { routineLogs, routineRevisions, routines, sessions, users } from "@/lib/db/schema";
 import { getTodayDate, isValidDateKey } from "@/lib/date";
 import { getDailyRoutinesForDate, isRoutineEnded, routineForDate } from "@/lib/routine-view";
-import { createRoutineForUser, deactivateRoutineForUser, parseRoutineInput, reactivateRoutineForUser, setRoutineLog, updateRoutineForUser } from "@/lib/routine-service";
+import { createRoutineForUser, deactivateRoutineForUser, listRoutineData, parseRoutineInput, reactivateRoutineForUser, setRoutineLog, updateRoutineForUser } from "@/lib/routine-service";
 import { getServerTodayDate } from "@/lib/server-date";
 import { assertSafeTestDatabaseUrl } from "@/scripts/test-database-safety.mjs";
 import { testDb, testSql } from "@/tests/setup";
@@ -77,6 +77,70 @@ describe("date input validation", () => {
 });
 
 describe("routine views and revision boundaries", () => {
+  it("returns routines, revisions, and logs from one snapshot while an update is in progress", async () => {
+    const user = await createTestUser();
+    const routine = await createRoutineForUser(user.id, {
+      content: "更新前のRoutine",
+      priority: "required",
+      daysOfWeek: [4],
+      startDate: TEST_TODAY,
+      isActive: true,
+    });
+    await setRoutineLog(user.id, routine.id, TEST_TODAY, true);
+    await testSql`CREATE OR REPLACE FUNCTION test_delay_routine_update() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(0.4); RETURN NEW; END; $$`;
+    await testSql`CREATE TRIGGER test_delay_routine_update AFTER UPDATE ON routines FOR EACH ROW EXECUTE FUNCTION test_delay_routine_update()`;
+    try {
+      const updatePromise = updateRoutineForUser(user.id, routine.id, {
+        content: "更新後のRoutine",
+        priority: "optional",
+        daysOfWeek: [4],
+        startDate: TEST_TODAY,
+        isActive: true,
+      }, { expectedUpdatedAt: routine.updatedAt });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const snapshot = await listRoutineData(user.id);
+      await updatePromise;
+
+      expect(snapshot.routines[0]).toMatchObject({ content: "更新前のRoutine" });
+      expect(snapshot.routines[0]?.revisions).toHaveLength(1);
+      expect(snapshot.routines[0]?.revisions[0]).toMatchObject({ content: "更新前のRoutine" });
+      expect(snapshot.logs[`${routine.id}__${TEST_TODAY}`]).toBeDefined();
+    } finally {
+      await testSql`DROP TRIGGER IF EXISTS test_delay_routine_update ON routines`;
+      await testSql`DROP FUNCTION IF EXISTS test_delay_routine_update()`;
+    }
+  });
+
+  it("rejects concurrent updates using the same routine version", async () => {
+    const user = await createTestUser();
+    const routine = await createRoutineForUser(user.id, {
+      content: "競合前のRoutine",
+      priority: "required",
+      daysOfWeek: [4],
+      startDate: TEST_TODAY,
+      isActive: true,
+    });
+    const input = {
+      content: "競合更新",
+      priority: "optional" as const,
+      daysOfWeek: [4],
+      startDate: TEST_TODAY,
+      isActive: true,
+    };
+
+    const results = await Promise.allSettled([
+      updateRoutineForUser(user.id, routine.id, input, { expectedUpdatedAt: routine.updatedAt }),
+      updateRoutineForUser(user.id, routine.id, { ...input, content: "もう一つの競合更新" }, { expectedUpdatedAt: routine.updatedAt }),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")[0]).toMatchObject({ reason: { status: 409 } });
+    const current = await listRoutineData(user.id);
+    expect(current.routines).toHaveLength(1);
+    expect(current.routines[0]?.revisions).toHaveLength(1);
+    expect(current.routines[0]?.revisions.at(-1)?.content).toBe(current.routines[0]?.content);
+  });
+
   it("shows only routines scheduled for the requested weekday and restores the revision for that date", async () => {
     const user = await createTestUser();
     const thursday = await createRoutineForUser(user.id, {
