@@ -28,10 +28,11 @@ async function register(page: Page, email: string, password: string) {
   await expect(page.getByText(email)).toBeVisible();
 }
 
-async function createRoutine(page: Page, content: string, startDate?: string) {
+async function createRoutine(page: Page, content: string, startDate?: string, endDate?: string) {
   await page.getByRole("link", { name: "Routines" }).click();
   await page.getByLabel("内容").fill(content);
   if (startDate) await page.getByLabel("開始日").fill(startDate);
+  if (endDate) await page.getByLabel("終了日（任意）").fill(endDate);
   await page.getByRole("button", { name: "日", exact: true }).click();
   await page.getByRole("button", { name: "土", exact: true }).click();
   await page.getByRole("button", { name: "追加する" }).click();
@@ -231,6 +232,43 @@ test("keeps Today date navigation stable for past and future dates", async ({ pa
   expect(mobileNavBox!.x).toBeGreaterThanOrEqual(0);
   expect(mobileNavBox!.x + mobileNavBox!.width).toBeLessThanOrEqual(375);
   expect(mobileActionsBox!.x + mobileActionsBox!.width).toBeLessThanOrEqual(375);
+});
+
+test("keeps ended routine edits out of the future until explicitly resumed", async ({ page }) => {
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-ended-routine-${unique}@example.com`;
+  const password = "correct-horse-battery-staple";
+  const todayDate = dateKey(new Date());
+  const previousDate = addDays(todayDate, -2);
+  const startDate = addDays(todayDate, -7);
+  const endDate = addDays(todayDate, -1);
+
+  await register(page, email, password);
+  await createRoutine(page, "終了前のRoutine", startDate, endDate);
+  await expect(page.locator(".ended-section")).toContainText("終了済み");
+
+  await page.goto(`/?date=${previousDate}`);
+  await page.getByRole("button", { name: "終了前のRoutineを完了にする" }).click();
+  await expect(page.getByRole("button", { name: "終了前のRoutineを未完了に戻す" })).toBeVisible();
+
+  await page.getByRole("link", { name: "Routines" }).click();
+  const endedRow = page.locator(".ended-section .managed-row").filter({ hasText: "終了前のRoutine" });
+  await endedRow.getByRole("button", { name: /編集/ }).click();
+  await expect(page.getByText("内容だけの変更では再開しません。延長する場合は終了日を未来の日付へ変更するか、再開を選択してください。")).toBeVisible();
+  await page.getByRole("dialog").getByRole("textbox").first().fill("終了後に編集したRoutine");
+  await page.getByRole("dialog").getByRole("button", { name: "変更を保存" }).click();
+  await expect(page.locator(".ended-section")).toContainText("終了後に編集したRoutine");
+
+  await page.goto(`/?date=${previousDate}`);
+  await expect(page.getByRole("button", { name: "終了前のRoutineを未完了に戻す" })).toBeVisible();
+  await expect(page.getByText("終了後に編集したRoutine")).toHaveCount(0);
+  await page.goto("/");
+  await expect(page.getByText("終了後に編集したRoutine")).toHaveCount(0);
+
+  await page.getByRole("link", { name: "Routines" }).click();
+  await page.locator(".ended-section .managed-row").getByRole("button", { name: /再開/ }).click();
+  await expect(page.locator(".ended-section")).toHaveCount(0);
+  await expect(page.getByText("終了後に編集したRoutine")).toBeVisible();
 });
 
 test("filters Calendar by routine history and keeps the selector safe", async ({ page }) => {

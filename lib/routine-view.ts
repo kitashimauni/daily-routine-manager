@@ -7,6 +7,10 @@ export function revisionForDate(routine: Routine, date: string) {
     .find((revision) => date >= revision.startDate && (!revision.endDate || date <= revision.endDate));
 }
 
+export function isRoutineEnded(routine: Routine, date: string) {
+  return routine.isActive && Boolean(routine.endDate && routine.endDate < date);
+}
+
 export function routineForDate(routine: Routine, date: string): Routine | null {
   const revision = revisionForDate(routine, date);
   if (!revision || !revision.isActive || !revision.daysOfWeek.includes(getDayOfWeek(date))) return null;
