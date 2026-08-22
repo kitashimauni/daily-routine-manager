@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
-import { and, eq, gt, lt } from "drizzle-orm";
+import { and, eq, gt, lte } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { getDatabase } from "@/lib/db";
 import type { Database } from "@/lib/db";
@@ -98,6 +98,14 @@ async function createSession(userId: string, cookieStore?: CookieStore) {
   await setSessionCookie(token, cookieStore);
 }
 
+async function cleanupExpiredSessionsBestEffort() {
+  try {
+    await removeExpiredSessions();
+  } catch (error) {
+    console.error("Failed to clean up expired sessions.", error);
+  }
+}
+
 export async function registerUser(email: string, password: string, options: AuthOptions = {}): Promise<AuthUser> {
   const normalizedEmail = validateCredentials(email, password);
   const db = getDatabase();
@@ -114,6 +122,7 @@ export async function registerUser(email: string, password: string, options: Aut
     if (hasDatabaseErrorCode(error, "23505")) throw new AuthError("このメールアドレスはすでに登録されています。", 409);
     throw error;
   }
+  await cleanupExpiredSessionsBestEffort();
   return { id: userId, email: normalizedEmail };
 }
 
@@ -122,6 +131,7 @@ export async function loginUser(email: string, password: string, options: AuthOp
   const db = getDatabase();
   const [user] = await db.select({ id: users.id, email: users.email, passwordHash: users.passwordHash }).from(users).where(eq(users.email, normalizedEmail)).limit(1);
   if (!user || !(await verifyPassword(password, user.passwordHash))) throw new AuthError("メールアドレスまたはパスワードが正しくありません。", 401);
+  await cleanupExpiredSessionsBestEffort();
   await createSession(user.id, options.cookieStore);
   return { id: user.id, email: user.email };
 }
@@ -155,5 +165,5 @@ export async function logoutUser(options: AuthOptions = {}) {
 }
 
 export async function removeExpiredSessions() {
-  await getDatabase().delete(sessions).where(lt(sessions.expiresAt, new Date().toISOString()));
+  await getDatabase().delete(sessions).where(lte(sessions.expiresAt, new Date().toISOString()));
 }
