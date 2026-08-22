@@ -17,6 +17,7 @@ ESLintは9.39.5、TypeScriptは6.0.3を使用しています。Next.js 16.3.1の
 通常のRoutine読込はRoutine / Revision / Logをread-only `REPEATABLE READ` transaction内の同一snapshotから組み立てます。Routine更新は`updatedAt`を条件にしたoptimistic lockingを使い、同じversionを競合更新した場合は409で再読込を要求します。更新時刻は同一ミリ秒の更新でも単調増加させ、Routine本体とRevisionの置換を一つのtransactionで行います。
 
 Todayの`?date=YYYY-MM-DD`は形式とカレンダー上の存在を厳密に検証し、不正値は今日へフォールバックします。過去日は履歴確認用に表示し、未来日は閲覧のみとします。日付ツールバーは左右の矢印と中央の日付領域を固定した3列レイアウトにし、TODAYチップや補助アクションの有無で位置・高さが変わらないようにしています。過去日・未来日では常に「今日に戻る」を表示し、未来日は閲覧専用表示と併記します。API側でも同じ日付検証を行い、未来日・対象外曜日・無効なrevisionへの記録を拒否します。
+Todayの見出しと進捗ラベルは表示中の日付に合わせ、今日なら「今日のルーティーン」「今日の全体進捗」、過去日・未来日なら「この日のルーティーン」「選択日の全体進捗」と表示します。
 
 日付の境界は`APP_TIME_ZONE`（既定`Asia/Tokyo`）に統一します。Session / Login / Register APIは認証状態とともに設定済みタイムゾーンを返し、`RoutineProvider`がクライアントの日付計算へ渡します。Today / Calendar / Stats / Routinesの「今日」やRoutine作成初期値は、ブラウザのローカルタイムゾーンではなく、この値を明示した`Intl.DateTimeFormat`で算出します。これにより非JSTブラウザでもAPIの未来日判定と一致し、JST 0時境界は固定時計とPlaywrightの非JSTコンテキストで回帰検証します。
 Calendarは全体表示を既定とし、`?routine=<id>`または表示対象selectorでユーザー自身のRoutine単位へ切り替えられます。Routine単位の各日セルは、`routineForDate`でその日のRevision・曜日・有効状態を復元したうえで、完了・予定あり未完了・予定なしを表示します。不正または他ユーザーのRoutine IDは全体表示へ安全にフォールバックし、無効化済みRoutineもselectorから除外せず過去の履歴を確認できます。Routines画面から対象RoutineのCalendarへ直接遷移できます。
