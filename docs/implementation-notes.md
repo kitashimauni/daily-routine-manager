@@ -16,6 +16,8 @@ ESLintは9.39.5、TypeScriptは6.0.3を使用しています。Next.js 16.3.1の
 
 通常のRoutine読込はRoutine / Revision / Logをread-only `REPEATABLE READ` transaction内の同一snapshotから組み立てます。Routine更新は`updatedAt`を条件にしたoptimistic lockingを使い、同じversionを競合更新した場合は409で再読込を要求します。更新時刻は同一ミリ秒の更新でも単調増加させ、Routine本体とRevisionの置換を一つのtransactionで行います。
 
+Production / Previewのdeploy validationは`APP_TIME_ZONE`をIANA timezoneとして検証し、未指定時は`Asia/Tokyo`を使用します。release commandは`RELEASE_HEALTH_TIMEOUT_SECONDS`と`RELEASE_HEALTH_POLL_INTERVAL_SECONDS`をDocker操作前に検証し、正の有限数だけを受け付けます。RoutineのPATCHとdeactivate / reactivate APIはISO timestamp形式の`updatedAt`を必須とし、欠落・不正値は400、stale versionは409で拒否します。
+
 Todayの`?date=YYYY-MM-DD`は形式とカレンダー上の存在を厳密に検証し、不正値は今日へフォールバックします。過去日は履歴確認用に表示し、未来日は閲覧のみとします。日付ツールバーは左右の矢印と中央の日付領域を固定した3列レイアウトにし、TODAYチップや補助アクションの有無で位置・高さが変わらないようにしています。過去日・未来日では常に「今日に戻る」を表示し、未来日は閲覧専用表示と併記します。API側でも同じ日付検証を行い、未来日・対象外曜日・無効なrevisionへの記録を拒否します。
 Todayの見出しと進捗ラベルは表示中の日付に合わせ、今日なら「今日のルーティーン」「今日の全体進捗」、過去日・未来日なら「この日のルーティーン」「選択日の全体進捗」と表示します。
 

@@ -69,6 +69,9 @@ jobs:
       - name: Test release health verification
         run: mise exec -- pnpm test:release-health
 
+      - name: Test deployment environment validation
+        run: mise exec -- pnpm test:deploy-env
+
       - name: Build production app image
         run: >-
           docker build --target runner --tag daily-routine-manager:ci

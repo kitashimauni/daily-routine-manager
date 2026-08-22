@@ -1,4 +1,6 @@
-import { assertReleaseHealthPayload, waitForAppHealth } from "./deploy-production.mjs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { assertReleaseHealthPayload, parseReleaseHealthSettings, waitForAppHealth } from "./deploy-production.mjs";
 
 async function expectFailure(action, expectedMessage) {
   try {
@@ -10,6 +12,30 @@ async function expectFailure(action, expectedMessage) {
 }
 
 let now = 0;
+if (parseReleaseHealthSettings({}).timeoutMs !== 120_000 || parseReleaseHealthSettings({}).pollIntervalMs !== 2_000) {
+  throw new Error("Release health defaults changed unexpectedly.");
+}
+if (parseReleaseHealthSettings({ RELEASE_HEALTH_TIMEOUT_SECONDS: "3.5", RELEASE_HEALTH_POLL_INTERVAL_SECONDS: "0.25" }).timeoutMs !== 3_500) {
+  throw new Error("Release health timeout parsing failed.");
+}
+await expectFailure(
+  () => Promise.resolve(parseReleaseHealthSettings({ RELEASE_HEALTH_TIMEOUT_SECONDS: "abc" })),
+  "RELEASE_HEALTH_TIMEOUT_SECONDS must be a positive number of seconds",
+);
+await expectFailure(
+  () => Promise.resolve(parseReleaseHealthSettings({ RELEASE_HEALTH_POLL_INTERVAL_SECONDS: "0" })),
+  "RELEASE_HEALTH_POLL_INTERVAL_SECONDS must be a positive number of seconds",
+);
+
+const invalidRelease = spawnSync(process.execPath, [fileURLToPath(new URL("./deploy-production.mjs", import.meta.url)), "--compose-env-file", ".env.production"], {
+  env: { ...process.env, RELEASE_HEALTH_TIMEOUT_SECONDS: "abc" },
+  encoding: "utf8",
+});
+const invalidReleaseOutput = `${invalidRelease.stdout ?? ""}\n${invalidRelease.stderr ?? ""}`;
+if (invalidRelease.status === 0 || !invalidReleaseOutput.includes("RELEASE_HEALTH_TIMEOUT_SECONDS must be a positive number of seconds")) {
+  throw new Error("Invalid release health settings must fail before release operations begin.");
+}
+
 const statuses = ["starting", "starting", "healthy"];
 await waitForAppHealth({
   getStatus: () => statuses.shift() ?? "healthy",
