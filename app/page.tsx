@@ -120,7 +120,7 @@ export default function TodayPage() {
       <div className="page-heading">
         <div>
           <p className="eyebrow">Daily practice</p>
-          <h1>今日のルーティーン</h1>
+          <h1>{today ? "今日のルーティーン" : "この日のルーティーン"}</h1>
           <p>小さな一歩を、今日もひとつずつ。</p>
         </div>
         <div className="heading-actions">
@@ -154,7 +154,7 @@ export default function TodayPage() {
         <div className="overview-progress">
           <span className="progress-amount">{progress}<small>%</small></span>
           <div className="progress-track"><div className="progress-fill" style={{ width: `${progress}%` }} /></div>
-          <span className="progress-label">今日の全体進捗　{completed} / {total}</span>
+          <span className="progress-label">{today ? "今日の全体進捗" : "選択日の全体進捗"}　{completed} / {total}</span>
         </div>
       </section>
 

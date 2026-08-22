@@ -187,6 +187,8 @@ test("keeps Today date navigation stable for past and future dates", async ({ pa
 
   await nextButton.click();
   await expect(page).toHaveURL(new RegExp(`\\?date=${futureDate}$`));
+  await expect(page.getByRole("heading", { name: "この日のルーティーン" })).toBeVisible();
+  await expect(page.getByText("選択日の全体進捗", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "今日に戻る" })).toBeVisible();
   await expect(page.locator(".read-only-note")).toBeVisible();
   await expect(page.getByRole("button", { name: "日付ナビゲーションを完了にする" })).toBeDisabled();
@@ -200,6 +202,8 @@ test("keeps Today date navigation stable for past and future dates", async ({ pa
 
   await page.getByRole("button", { name: "今日に戻る" }).click();
   await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("heading", { name: "今日のルーティーン" })).toBeVisible();
+  await expect(page.getByText("今日の全体進捗", { exact: false })).toBeVisible();
   await expect(todayChip).toBeVisible();
   const restoredPreviousBox = await previousButton.boundingBox();
   const restoredNextBox = await nextButton.boundingBox();
@@ -209,6 +213,8 @@ test("keeps Today date navigation stable for past and future dates", async ({ pa
   expect(Math.abs(restoredNextBox!.x - initialNextBox!.x)).toBeLessThanOrEqual(1);
 
   await page.goto(`/?date=${pastDate}`);
+  await expect(page.getByRole("heading", { name: "この日のルーティーン" })).toBeVisible();
+  await expect(page.getByText("選択日の全体進捗", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "今日に戻る" })).toBeVisible();
   await expect(page.locator(".read-only-note")).toBeHidden();
 
