@@ -36,9 +36,9 @@ Windowsでmise本体が未導入の場合は、先に `scoop install mise` ま�
 Productionのdeployは、`main`のcleanなGit worktreeから`mise exec -- pnpm release:production`を実行します。スクリプトが`git rev-parse HEAD`からcommit SHAを導出し、同じsourceをDocker build contextにして、SHA付きimage tagと`/api/health`のrelease metadataへ注入します。rollbackは`--rollback <commit-or-tag>`で対象commitの一時detached worktreeを作成するため、現在のコードへ過去SHAだけを設定することはできません。image buildにはDB変更を含めず、one-shotの`migrate` serviceで環境検証とmigrationを実行してから`app`を起動します。migrationが失敗した場合はappを起動しません。appのDocker healthcheckがhealthyになり、`/api/health`のrelease SHAが起動対象commitと一致した後だけdeploy成功として終了します。稼働中のcommit、version、環境は`GET /api/health`で確認できます。
 
 ```bash
-mise exec -- pnpm release:production -- --compose-env-file .env.production
+mise exec -- pnpm release:production --compose-env-file .env.production
 # rollback: mainのcleanなworktreeで実行する
-mise exec -- pnpm release:production -- --rollback <known-main-commit-or-tag> --compose-env-file .env.production
+mise exec -- pnpm release:production --rollback <known-main-commit-or-tag> --compose-env-file .env.production
 ```
 
 初回アクセス時にアカウントを登録して利用します。新規登録直後はルーティーン0件の状態で始まり、Todayの「最初のルーティーンを追加」から登録できます。ルーティーンと完了ログはPostgreSQLにユーザー単位で保存されるため、ブラウザを変えても同じアカウントで参照できます。
