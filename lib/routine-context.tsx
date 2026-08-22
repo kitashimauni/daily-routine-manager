@@ -248,7 +248,8 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     setErrorSource(null);
     try {
-      const response = await authenticatedRequestJson<{ routine: Routine }>(`/api/routines/${encodeURIComponent(routineId)}`, { method: "PATCH", body: JSON.stringify(input) });
+      const currentRoutine = routines.find((routine) => routine.id === routineId);
+      const response = await authenticatedRequestJson<{ routine: Routine }>(`/api/routines/${encodeURIComponent(routineId)}`, { method: "PATCH", body: JSON.stringify(currentRoutine ? { ...input, updatedAt: currentRoutine.updatedAt } : input) });
       setRoutines((current) => current.map((routine) => routine.id === routineId ? response.routine : routine));
     } catch (requestError) {
       if (isUnauthorizedError(requestError)) invalidateSession();
@@ -258,13 +259,14 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
       }
       throw requestError;
     }
-  }, [authenticatedRequestJson, invalidateSession]);
+  }, [authenticatedRequestJson, invalidateSession, routines]);
 
   const changeRoutineState = useCallback(async (routineId: string, action: "deactivate" | "reactivate") => {
     setError(null);
     setErrorSource(null);
     try {
-      const response = await authenticatedRequestJson<{ routine: Routine }>(`/api/routines/${encodeURIComponent(routineId)}`, { method: "POST", body: JSON.stringify({ action }) });
+      const currentRoutine = routines.find((routine) => routine.id === routineId);
+      const response = await authenticatedRequestJson<{ routine: Routine }>(`/api/routines/${encodeURIComponent(routineId)}`, { method: "POST", body: JSON.stringify(currentRoutine ? { action, updatedAt: currentRoutine.updatedAt } : { action }) });
       setRoutines((current) => current.map((routine) => routine.id === routineId ? response.routine : routine));
     } catch (requestError) {
       if (isUnauthorizedError(requestError)) invalidateSession();
@@ -273,7 +275,7 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
         setErrorSource("data");
       }
     }
-  }, [authenticatedRequestJson, invalidateSession]);
+  }, [authenticatedRequestJson, invalidateSession, routines]);
 
   const deactivateRoutine = useCallback((routineId: string) => changeRoutineState(routineId, "deactivate"), [changeRoutineState]);
   const reactivateRoutine = useCallback((routineId: string) => changeRoutineState(routineId, "reactivate"), [changeRoutineState]);

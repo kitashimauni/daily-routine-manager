@@ -58,6 +58,16 @@ function toRoutine(row: typeof routines.$inferSelect, revisions: Array<typeof ro
   };
 }
 
+function conflictError() {
+  return new RoutineServiceError("ルーティーンが別の場所で更新されています。再読み込みしてから再度保存してください。", 409);
+}
+
+function nextTimestamp(previous: string) {
+  const now = Date.now();
+  const previousTime = Date.parse(previous);
+  return new Date(Math.max(now, previousTime + 1)).toISOString();
+}
+
 function revisionForDate(routine: Routine, date: string) {
   return [...routine.revisions]
     .sort((left, right) => right.startDate.localeCompare(left.startDate))
@@ -111,31 +121,35 @@ function withNewRevision(routine: Routine, input: RoutineInput, effectiveDate: s
 
 async function findRoutine(userId: string, routineId: string) {
   const db = getDatabase();
-  const [row] = await db.select().from(routines).where(and(eq(routines.id, routineId), eq(routines.userId, userId))).limit(1);
-  if (!row) throw new RoutineServiceError("ルーティーンが見つかりません。", 404);
-  const revisions = await db.select().from(routineRevisions).where(eq(routineRevisions.routineId, routineId)).orderBy(asc(routineRevisions.startDate), asc(routineRevisions.createdAt));
-  return { row, routine: toRoutine(row, revisions) };
+  return db.transaction(async (tx) => {
+    const [row] = await tx.select().from(routines).where(and(eq(routines.id, routineId), eq(routines.userId, userId))).limit(1);
+    if (!row) throw new RoutineServiceError("ルーティーンが見つかりません。", 404);
+    const revisions = await tx.select().from(routineRevisions).where(eq(routineRevisions.routineId, routineId)).orderBy(asc(routineRevisions.startDate), asc(routineRevisions.createdAt));
+    return { row, routine: toRoutine(row, revisions) };
+  }, { isolationLevel: "repeatable read", accessMode: "read only" });
 }
 
 export async function listRoutineData(userId: string) {
   const db = getDatabase();
-  const rows = await db.select().from(routines).where(eq(routines.userId, userId)).orderBy(asc(routines.createdAt));
-  const routineIds = rows.map((row) => row.id);
-  const revisions = routineIds.length === 0 ? [] : await db.select().from(routineRevisions).where(inArray(routineRevisions.routineId, routineIds)).orderBy(asc(routineRevisions.startDate), asc(routineRevisions.createdAt));
-  const logRows = routineIds.length === 0 ? [] : await db.select().from(routineLogs).where(and(eq(routineLogs.userId, userId), inArray(routineLogs.routineId, routineIds)));
-  const revisionsByRoutine = new Map<string, Array<typeof routineRevisions.$inferSelect>>();
-  for (const revision of revisions) revisionsByRoutine.set(revision.routineId, [...(revisionsByRoutine.get(revision.routineId) ?? []), revision]);
-  const logs: RoutineLogs = Object.fromEntries(logRows.map((log): [string, RoutineLog] => [
-    `${log.routineId}__${log.date}`,
-    { id: log.id, routineId: log.routineId, date: log.date, createdAt: log.createdAt, updatedAt: log.updatedAt },
-  ]));
-  return { routines: rows.map((row) => toRoutine(row, revisionsByRoutine.get(row.id) ?? [])), logs };
+  return db.transaction(async (tx) => {
+    const rows = await tx.select().from(routines).where(eq(routines.userId, userId)).orderBy(asc(routines.createdAt));
+    const routineIds = rows.map((row) => row.id);
+    const revisions = routineIds.length === 0 ? [] : await tx.select().from(routineRevisions).where(inArray(routineRevisions.routineId, routineIds)).orderBy(asc(routineRevisions.startDate), asc(routineRevisions.createdAt));
+    const logRows = routineIds.length === 0 ? [] : await tx.select().from(routineLogs).where(and(eq(routineLogs.userId, userId), inArray(routineLogs.routineId, routineIds)));
+    const revisionsByRoutine = new Map<string, Array<typeof routineRevisions.$inferSelect>>();
+    for (const revision of revisions) revisionsByRoutine.set(revision.routineId, [...(revisionsByRoutine.get(revision.routineId) ?? []), revision]);
+    const logs: RoutineLogs = Object.fromEntries(logRows.map((log): [string, RoutineLog] => [
+      `${log.routineId}__${log.date}`,
+      { id: log.id, routineId: log.routineId, date: log.date, createdAt: log.createdAt, updatedAt: log.updatedAt },
+    ]));
+    return { routines: rows.map((row) => toRoutine(row, revisionsByRoutine.get(row.id) ?? [])), logs };
+  }, { isolationLevel: "repeatable read", accessMode: "read only" });
 }
 
-async function replaceRoutine(userId: string, routine: Routine) {
+async function replaceRoutine(userId: string, routine: Routine, expectedUpdatedAt: string) {
   const db = getDatabase();
   await db.transaction(async (tx) => {
-    await tx.update(routines).set({
+    const updated = await tx.update(routines).set({
       content: routine.content,
       priority: routine.priority,
       daysOfWeek: routine.daysOfWeek,
@@ -143,7 +157,8 @@ async function replaceRoutine(userId: string, routine: Routine) {
       endDate: routine.endDate ?? null,
       isActive: routine.isActive,
       updatedAt: routine.updatedAt,
-    }).where(and(eq(routines.id, routine.id), eq(routines.userId, userId)));
+    }).where(and(eq(routines.id, routine.id), eq(routines.userId, userId), eq(routines.updatedAt, expectedUpdatedAt))).returning({ id: routines.id });
+    if (updated.length === 0) throw conflictError();
     await tx.delete(routineRevisions).where(eq(routineRevisions.routineId, routine.id));
     await tx.insert(routineRevisions).values(routine.revisions.map((revision) => ({
       id: revision.id,
@@ -159,9 +174,9 @@ async function replaceRoutine(userId: string, routine: Routine) {
   });
 }
 
-async function updateRoutineSummary(userId: string, routine: Routine) {
+async function updateRoutineSummary(userId: string, routine: Routine, expectedUpdatedAt: string) {
   const db = getDatabase();
-  await db.update(routines).set({
+  const updated = await db.update(routines).set({
     content: routine.content,
     priority: routine.priority,
     daysOfWeek: routine.daysOfWeek,
@@ -169,7 +184,8 @@ async function updateRoutineSummary(userId: string, routine: Routine) {
     endDate: routine.endDate ?? null,
     isActive: routine.isActive,
     updatedAt: routine.updatedAt,
-  }).where(and(eq(routines.id, routine.id), eq(routines.userId, userId)));
+  }).where(and(eq(routines.id, routine.id), eq(routines.userId, userId), eq(routines.updatedAt, expectedUpdatedAt))).returning({ id: routines.id });
+  if (updated.length === 0) throw conflictError();
 }
 
 export async function createRoutineForUser(userId: string, input: RoutineInput) {
@@ -184,45 +200,47 @@ export async function createRoutineForUser(userId: string, input: RoutineInput) 
   return (await findRoutine(userId, routineId)).routine;
 }
 
-export async function updateRoutineForUser(userId: string, routineId: string, input: RoutineInput, options: { allowEndedResume?: boolean } = {}) {
+export async function updateRoutineForUser(userId: string, routineId: string, input: RoutineInput, options: { allowEndedResume?: boolean; expectedUpdatedAt?: string } = {}) {
   const { routine } = await findRoutine(userId, routineId);
+  if (options.expectedUpdatedAt && options.expectedUpdatedAt !== routine.updatedAt) throw conflictError();
+  const expectedUpdatedAt = routine.updatedAt;
   const today = getServerTodayDate();
-  const timestamp = new Date().toISOString();
+  const timestamp = nextTimestamp(routine.updatedAt);
   const keepsEnded = !input.endDate || input.endDate < today;
   const startsInFuture = input.startDate > today;
   if (isRoutineEnded(routine, today) && !options.allowEndedResume && keepsEnded && !startsInFuture) {
     const endedRoutine = { ...routine, ...input, endDate: input.endDate ?? routine.endDate, updatedAt: timestamp };
-    await updateRoutineSummary(userId, endedRoutine);
+    await updateRoutineSummary(userId, endedRoutine, expectedUpdatedAt);
     return (await findRoutine(userId, routineId)).routine;
   }
   const deactivating = routine.isActive && !input.isActive;
   const effectiveDate = deactivating ? addDateDays(today, 1) : input.startDate > today ? input.startDate : today;
   const nextInput = deactivating ? { ...input, startDate: effectiveDate, endDate: undefined } : input;
   const nextRoutine = withNewRevision(routine, nextInput, effectiveDate, timestamp);
-  await replaceRoutine(userId, nextRoutine);
+  await replaceRoutine(userId, nextRoutine, expectedUpdatedAt);
   return (await findRoutine(userId, routineId)).routine;
 }
 
-export async function deactivateRoutineForUser(userId: string, routineId: string) {
+export async function deactivateRoutineForUser(userId: string, routineId: string, options: { expectedUpdatedAt?: string } = {}) {
   const { routine } = await findRoutine(userId, routineId);
   if (!routine.isActive) return routine;
   const today = getServerTodayDate();
   const currentRevision = revisionForDate(routine, today) ?? routine.revisions.at(-1);
   if (!currentRevision) throw new RoutineServiceError("ルーティーン履歴が見つかりません。", 500);
   const currentInput = isRoutineEnded(routine, today) ? inputFromRoutine(routine) : inputFromRevision(currentRevision);
-  return updateRoutineForUser(userId, routineId, { ...currentInput, isActive: false, startDate: addDateDays(today, 1), endDate: undefined });
+  return updateRoutineForUser(userId, routineId, { ...currentInput, isActive: false, startDate: addDateDays(today, 1), endDate: undefined }, options);
 }
 
-export async function reactivateRoutineForUser(userId: string, routineId: string) {
+export async function reactivateRoutineForUser(userId: string, routineId: string, options: { expectedUpdatedAt?: string } = {}) {
   const { routine } = await findRoutine(userId, routineId);
   const today = getServerTodayDate();
   if (routine.isActive && !isRoutineEnded(routine, today)) return routine;
   if (isRoutineEnded(routine, today)) {
-    return updateRoutineForUser(userId, routineId, inputFromRoutine(routine, { isActive: true, startDate: today, endDate: undefined }), { allowEndedResume: true });
+    return updateRoutineForUser(userId, routineId, inputFromRoutine(routine, { isActive: true, startDate: today, endDate: undefined }), { ...options, allowEndedResume: true });
   }
   const currentRevision = revisionForDate(routine, today) ?? routine.revisions.at(-1);
   if (!currentRevision) throw new RoutineServiceError("ルーティーン履歴が見つかりません。", 500);
-  return updateRoutineForUser(userId, routineId, inputFromRevision(currentRevision, { isActive: true, startDate: today, endDate: undefined }));
+  return updateRoutineForUser(userId, routineId, inputFromRevision(currentRevision, { isActive: true, startDate: today, endDate: undefined }), options);
 }
 
 export async function setRoutineLog(userId: string, routineId: string, date: string, completed: boolean) {
