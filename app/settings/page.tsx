@@ -2,9 +2,8 @@
 
 import { useRef, useState } from "react";
 import { LogoutButton } from "@/components/logout-button";
+import { MAX_DATA_BYTES, MAX_DATA_SIZE_LABEL } from "@/lib/data-portability-constants";
 import { useRoutines } from "@/lib/routine-context";
-
-const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 
 interface ImportPreview {
   schemaVersion: unknown;
@@ -18,7 +17,7 @@ function responseError(body: unknown) {
 }
 
 export default function SettingsPage() {
-  const { authenticatedFetch, retry, user } = useRoutines();
+  const { authenticatedFetch, reloadData, user } = useRoutines();
   const inputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
@@ -39,8 +38,8 @@ export default function SettingsPage() {
     setPreview(null);
     setSelectedFile(file ?? null);
     if (!file) return;
-    if (file.size > MAX_IMPORT_BYTES) {
-      setError("ファイルサイズが大きすぎます。5MB以下のJSONを選択してください。");
+    if (file.size > MAX_DATA_BYTES) {
+      setError(`ファイルサイズが大きすぎます。${MAX_DATA_SIZE_LABEL}以下のJSONを選択してください。`);
       return;
     }
     try {
@@ -85,15 +84,20 @@ export default function SettingsPage() {
     setBusy(true);
     setError(null);
     setStatus(null);
+    let importCommitted = false;
     try {
       const response = await authenticatedFetch("/api/data/import", { method: "POST", body: await selectedFile.text() });
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(responseError(body));
-      await retry();
+      importCommitted = true;
+      await reloadData();
       setStatus(`${body.imported.routines}件のRoutine、${body.imported.revisions}件の履歴、${body.imported.logs}件の完了ログを復元しました。`);
       clearSelection();
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "データの読み込みに失敗しました。既存データは変更されていません。");
+      setError(importCommitted
+        ? "データの置き換えは完了しましたが、画面の再読み込みに失敗しました。データを再読み込みしてください。"
+        : requestError instanceof Error ? requestError.message : "データの読み込みに失敗しました。既存データは変更されていません。");
+      if (importCommitted) clearSelection();
     } finally {
       setBusy(false);
     }

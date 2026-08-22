@@ -3,14 +3,17 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDatabase } from "@/lib/db";
 import { routineLogs, routineRevisions, routines } from "@/lib/db/schema";
 import { isValidDateKey } from "@/lib/date";
+import { MAX_DATA_BYTES, MAX_DATA_SIZE_LABEL } from "@/lib/data-portability-constants";
 
 export const DATA_EXPORT_FORMAT = "daily-routine-manager" as const;
 export const DATA_EXPORT_SCHEMA_VERSION = 1 as const;
-export const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
+export { MAX_DATA_BYTES } from "@/lib/data-portability-constants";
+export const MAX_IMPORT_BYTES = MAX_DATA_BYTES;
 
 const MAX_ROUTINES = 1_000;
 const MAX_REVISIONS = 10_000;
 const MAX_LOGS = 100_000;
+const IMPORT_INSERT_CHUNK_SIZE = 500;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class DataPortabilityError extends Error {
@@ -69,6 +72,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function fail(message: string): never {
   throw new DataPortabilityError(message);
+}
+
+function assertSerializedDataSize(payload: DataExportPayload) {
+  const bytes = new TextEncoder().encode(JSON.stringify(payload, null, 2)).byteLength;
+  if (bytes > MAX_DATA_BYTES) throw new DataPortabilityError("エクスポートデータがサポート上限を超えています。不要な履歴を整理してから再度お試しください。", 413);
+}
+
+export function serializeDataExport(payload: DataExportPayload) {
+  assertSerializedDataSize(payload);
+  return JSON.stringify(payload, null, 2);
+}
+
+export function dataSizeLimitMessage() {
+  return `ファイルサイズが大きすぎます。${MAX_DATA_SIZE_LABEL}以下のJSONを選択してください。`;
+}
+
+function chunk<T>(values: T[]) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += IMPORT_INSERT_CHUNK_SIZE) chunks.push(values.slice(index, index + IMPORT_INSERT_CHUNK_SIZE));
+  return chunks;
 }
 
 function assertKeys(value: Record<string, unknown>, keys: string[], label: string) {
@@ -227,7 +250,7 @@ export async function exportDataForUser(userId: string): Promise<DataExportPaylo
       ? []
       : await tx.select().from(routineLogs).where(and(eq(routineLogs.userId, userId), inArray(routineLogs.routineId, routineIds))).orderBy(asc(routineLogs.date), asc(routineLogs.id));
 
-    return {
+    const payload = {
       format: DATA_EXPORT_FORMAT,
       schemaVersion: DATA_EXPORT_SCHEMA_VERSION,
       exportedAt: new Date().toISOString(),
@@ -237,11 +260,14 @@ export async function exportDataForUser(userId: string): Promise<DataExportPaylo
         logs: logRows.map(({ id, routineId, date, createdAt, updatedAt }) => ({ id, routineId, date, createdAt, updatedAt })),
       },
     };
+    assertSerializedDataSize(payload);
+    return payload;
   }, { isolationLevel: "repeatable read", accessMode: "read only" });
 }
 
 export async function importDataForUser(userId: string, value: unknown) {
   const payload = validateDataExport(value);
+  assertSerializedDataSize(payload);
   const db = getDatabase();
   return db.transaction(async (tx) => {
     const existingRoutines = await tx.select({ id: routines.id }).from(routines).where(eq(routines.userId, userId));
@@ -254,7 +280,7 @@ export async function importDataForUser(userId: string, value: unknown) {
 
     const routineIdMap = new Map(payload.data.routines.map((routine) => [routine.id, randomUUID()]));
     if (payload.data.routines.length > 0) {
-      await tx.insert(routines).values(payload.data.routines.map((routine) => ({
+      const routineRows = payload.data.routines.map((routine) => ({
         id: routineIdMap.get(routine.id)!,
         userId,
         content: routine.content,
@@ -265,10 +291,11 @@ export async function importDataForUser(userId: string, value: unknown) {
         isActive: routine.isActive,
         createdAt: routine.createdAt,
         updatedAt: routine.updatedAt,
-      })));
+      }));
+      for (const rows of chunk(routineRows)) await tx.insert(routines).values(rows);
     }
     if (payload.data.revisions.length > 0) {
-      await tx.insert(routineRevisions).values(payload.data.revisions.map((revision) => ({
+      const revisionRows = payload.data.revisions.map((revision) => ({
         id: randomUUID(),
         routineId: routineIdMap.get(revision.routineId)!,
         content: revision.content,
@@ -278,17 +305,19 @@ export async function importDataForUser(userId: string, value: unknown) {
         endDate: revision.endDate,
         isActive: revision.isActive,
         createdAt: revision.createdAt,
-      })));
+      }));
+      for (const rows of chunk(revisionRows)) await tx.insert(routineRevisions).values(rows);
     }
     if (payload.data.logs.length > 0) {
-      await tx.insert(routineLogs).values(payload.data.logs.map((log) => ({
+      const logRows = payload.data.logs.map((log) => ({
         id: randomUUID(),
         userId,
         routineId: routineIdMap.get(log.routineId)!,
         date: log.date,
         createdAt: log.createdAt,
         updatedAt: log.updatedAt,
-      })));
+      }));
+      for (const rows of chunk(logRows)) await tx.insert(routineLogs).values(rows);
     }
 
     return {

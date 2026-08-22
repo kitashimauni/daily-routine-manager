@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { handleApiError } from "@/lib/api";
-import { MAX_IMPORT_BYTES, DataPortabilityError, importDataForUser } from "@/lib/data-portability";
+import { MAX_DATA_BYTES, DataPortabilityError, dataSizeLimitMessage, importDataForUser } from "@/lib/data-portability";
 import { requireUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -9,9 +9,9 @@ export async function POST(request: Request) {
   try {
     const user = await requireUser();
     const contentLength = Number(request.headers.get("content-length"));
-    if (Number.isFinite(contentLength) && contentLength > MAX_IMPORT_BYTES) throw new DataPortabilityError("ファイルサイズが大きすぎます。5MB以下のJSONを選択してください。");
+    if (Number.isFinite(contentLength) && contentLength > MAX_DATA_BYTES) throw new DataPortabilityError(dataSizeLimitMessage(), 413);
     const text = await request.text();
-    if (new TextEncoder().encode(text).byteLength > MAX_IMPORT_BYTES) throw new DataPortabilityError("ファイルサイズが大きすぎます。5MB以下のJSONを選択してください。");
+    if (new TextEncoder().encode(text).byteLength > MAX_DATA_BYTES) throw new DataPortabilityError(dataSizeLimitMessage(), 413);
     let payload: unknown;
     try {
       payload = JSON.parse(text);

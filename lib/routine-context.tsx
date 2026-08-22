@@ -32,6 +32,7 @@ interface RoutineContextValue {
   register: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   retry: () => Promise<void>;
+  reloadData: () => Promise<void>;
   authenticatedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 }
 
@@ -278,10 +279,28 @@ export function RoutineProvider({ children }: { children: React.ReactNode }) {
   const deactivateRoutine = useCallback((routineId: string) => changeRoutineState(routineId, "deactivate"), [changeRoutineState]);
   const reactivateRoutine = useCallback((routineId: string) => changeRoutineState(routineId, "reactivate"), [changeRoutineState]);
   const retry = useCallback(() => refreshSession(true), [refreshSession]);
+  const reloadData = useCallback(async () => {
+    setError(null);
+    setErrorSource(null);
+    setHydrated(false);
+    try {
+      await loadRoutineData();
+    } catch (requestError) {
+      if (isUnauthorizedError(requestError)) invalidateSession();
+      else {
+        resetData();
+        setError("データを再読み込みできませんでした。画面を再読み込みしてください。");
+        setErrorSource("data");
+      }
+      throw requestError;
+    } finally {
+      setHydrated(true);
+    }
+  }, [invalidateSession, loadRoutineData, resetData]);
 
   const value = useMemo(
-    () => ({ appTimeZone, user, authHydrated, error, errorSource, routines, logs, hydrated, getDailyRoutines, isCompleted, toggleRoutine, addRoutine, updateRoutine, deactivateRoutine, reactivateRoutine, login, register, logout, retry, authenticatedFetch }),
-    [addRoutine, appTimeZone, authenticatedFetch, authHydrated, deactivateRoutine, error, errorSource, getDailyRoutines, hydrated, isCompleted, login, logs, logout, reactivateRoutine, register, retry, routines, toggleRoutine, updateRoutine, user],
+    () => ({ appTimeZone, user, authHydrated, error, errorSource, routines, logs, hydrated, getDailyRoutines, isCompleted, toggleRoutine, addRoutine, updateRoutine, deactivateRoutine, reactivateRoutine, login, register, logout, retry, reloadData, authenticatedFetch }),
+    [addRoutine, appTimeZone, authenticatedFetch, authHydrated, deactivateRoutine, error, errorSource, getDailyRoutines, hydrated, isCompleted, login, logs, logout, reactivateRoutine, register, reloadData, retry, routines, toggleRoutine, updateRoutine, user],
   );
 
   return <RoutineContext.Provider value={value}>{children}</RoutineContext.Provider>;
